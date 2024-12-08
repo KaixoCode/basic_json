@@ -36,6 +36,10 @@ namespace kaixo {
         public:
 
             // ------------------------------------------------
+            
+            using std::list<std::pair<std::string, Value>>::list;
+
+            // ------------------------------------------------
 
             auto find(this auto& self, std::string_view value) {
                 return std::ranges::find_if(self, [&](auto& it) { return it.first == value; });
@@ -176,6 +180,22 @@ namespace kaixo {
             : _value(number_t{ static_cast<number_type_t<Ty>>(value) })
         {}
         
+        basic_json(std::initializer_list<object_t::value_type> values)
+            : _value(object_t{ values })
+        {}
+        
+        // ------------------------------------------------
+        
+        bool operator==(const basic_json& other) const { 
+            if (type() != other.type()) return false;
+            if (!is<number_t>()) return _value == other._value;
+            return std::visit([&](auto a) {
+                return std::visit([&](auto b) {
+                    return a == b; 
+                }, std::get<number_t>(other._value));     
+            }, std::get<number_t>(_value));
+        }
+
         // ------------------------------------------------
 
         type_index type() const { 
@@ -650,7 +670,7 @@ namespace kaixo {
                 // ------------------------------------------------
 
             };
-
+            
             undo push() { return undo{ this, value }; }
 
             // ------------------------------------------------
@@ -698,6 +718,15 @@ namespace kaixo {
             }
 
             // ------------------------------------------------
+            
+            std::size_t nof_characters_since_last(char find) const {
+                std::size_t parsed = original.size() - value.size();
+                std::size_t index = original.substr(0, parsed).find_last_of(find);
+                if (index == std::string_view::npos) return std::string_view::npos;
+                return parsed - index - 1;
+            }
+
+            // ------------------------------------------------
 
             void ignore(std::string_view anyOf = whitespace) {
                 value = trim_begin(value, anyOf);
@@ -741,7 +770,8 @@ namespace kaixo {
                 if (!maybe(fun, assign)) return;
                 while (true) {
                     { // First try comma
-                        auto _ = push();
+                        auto _ = push(); 
+                        maybe([&] { return parse_comment(); });
                         ignore(whitespace);
                         if (consume(',')) {
                             _.commit();
@@ -751,6 +781,7 @@ namespace kaixo {
                     }
                     { // Otherwise try LF
                         auto _ = push();
+                        maybe([&] { return parse_comment(); });
                         ignore(whitespace_no_lf);
                         if (consume('\n')) {
                             _.commit();
@@ -765,6 +796,7 @@ namespace kaixo {
             // ------------------------------------------------
 
             result<int> parse_comment() {
+                int nofCommentsParsed = 0;
                 while (true) {
                     auto _ = push();
 
@@ -785,7 +817,12 @@ namespace kaixo {
                             _.revert();
                             return die("Expected end of multi-line comment");
                         }
-                    } else return 0; // No more comments
+                    } else {
+                        if (nofCommentsParsed == 0) return die("No comments parsed"); // No more comments
+                        else return nofCommentsParsed;
+                    }
+
+                    ++nofCommentsParsed;
 
                     _.commit();
                 }
@@ -853,8 +890,8 @@ namespace kaixo {
                 string_t _result;
 
                 maybe([&] { return parse_comment(); });
-
                 ignore(whitespace);
+
                 if (!consume('"')) return die("Expected '\"' to start json string");
 
                 while (true) {
@@ -885,7 +922,10 @@ namespace kaixo {
 
             result<string_t> parse_quoteless_string() {
                 auto _ = push();
+
+                maybe([&] { return parse_comment(); });
                 ignore(whitespace);
+
                 if (value.empty() || one_of(value[0], "[]{},:")) return die("Empty string");
                 _.commit();
                 return trim(consume_while_not("\n")); // Consume til end of line
@@ -895,31 +935,34 @@ namespace kaixo {
                 auto _ = push();
                 string_t _result;
 
-                auto count_column = [&] {
-                    std::int64_t _end = 0;
-                    std::int64_t _column = 0;
-                    while (_end < value.size() && one_of(value[_end], whitespace)) {
-                        ++_column; // Count columns before '''
-                        if (value[_end] == '\n') _column = 0;
-                    }
-                    return _column;
-                };
-
-                std::int64_t _columns = count_column();
-
                 maybe([&] { return parse_comment(); });
-
                 ignore(whitespace);
-                if (!consume("'''")) return die("Expected ''' to start multi-line string");
-                while (true) {
-                    std::int64_t _spaces = std::max(count_column() - _columns, 0ll);
-                    for (std::size_t i = 0; i < _spaces; ++i) _result += ' ';
-                    
-                    ignore(whitespace_no_lf);
-                    if (consume("'''")) break; // End of string
 
+                std::int64_t _columns = nof_characters_since_last('\n');
+
+                if (!consume("'''")) return die("Expected ''' to start multi-line string");
+                ignore(whitespace_no_lf);
+                consume('\n');
+
+                bool first = true;
+                while (true) {
+                    ignore(whitespace_no_lf);
+
+                    std::size_t index = nof_characters_since_last('\n');
+                    if (index == std::string_view::npos) return die("Unexpected error");
+                    std::int64_t _spaces = std::max(static_cast<std::int64_t>(index) - _columns, 0ll);
+
+                    if (consume("'''")) break; // End of string
+                    
+                    if (first) {
+                        first = false;
+                    } else {
+                        _result += '\n';
+                    }
+
+                    for (std::size_t i = 0; i < _spaces; ++i) _result += ' ';
                     _result += consume_while_not("\n"); // Consume til end of line
-                    _result += '\n';
+                    consume('\n');
                 }
 
                 _.commit();
@@ -930,9 +973,9 @@ namespace kaixo {
                 auto _ = push();
                 _.commit();
 
+                if (auto str = parse_multiline_string()) return str.value();
                 if (auto str = parse_json_string()) return str.value();
                 if (auto str = parse_quoteless_string()) return str.value();
-                if (auto str = parse_multiline_string()) return str.value();
 
                 _.revert();
                 return die("Expected string");
@@ -946,18 +989,21 @@ namespace kaixo {
                 basic_json _value;
 
                 maybe([&] { return parse_comment(); });
-
                 ignore(whitespace);
+
                 if (!maybe([&] { return parse_json_string(); }, [&](auto&& val) { _name = val; })) {
                     _name = consume_while_not(",:[]{} \t\n\r\f\v");
                 }
 
                 if (_name.empty()) return die("Cannot have empty key");
 
+                maybe([&] { return parse_comment(); });
                 ignore(whitespace);
+
                 if (!consume(":")) return die("Expected ':' after key name");
 
-                ignore(whitespace);
+                maybe([&] { return parse_comment(); });
+
                 if (!maybe([&] { return parse_value(); }, [&](auto&& val) { _value = val; }))
                     return die("Expected value");
 
@@ -973,15 +1019,15 @@ namespace kaixo {
                 object_t _result;
 
                 maybe([&] { return parse_comment(); });
-
                 ignore(whitespace);
+
                 if (!consume('{')) return die("Expected '{' to begin Object");
 
                 parse_list([&] { return parse_member(); }, [&](auto&& val) { _result.put(val, _result.end()); });
 
                 maybe([&] { return parse_comment(); });
-
                 ignore(whitespace);
+
                 if (!consume('}')) return die("Expected '}' to close Object");
 
                 _.commit();
@@ -996,15 +1042,15 @@ namespace kaixo {
                 array_t _result;
 
                 maybe([&] { return parse_comment(); });
-
                 ignore(whitespace);
+
                 if (!consume('[')) return die("Expected '[' to begin Array");
 
                 parse_list([&] { return parse_value(); }, [&](auto&& val) { _result.push_back(val); });
 
                 maybe([&] { return parse_comment(); });
-
                 ignore(whitespace);
+
                 if (!consume(']')) return die("Expected ']' to close Array");
 
                 _.commit();
@@ -1019,15 +1065,14 @@ namespace kaixo {
 
                 basic_json _value;
 
-                maybe([&] { return parse_comment(); });
-
-                ignore(whitespace);
-
                 if (maybe([&] { return parse_object(); }, [&](auto&& val) { _value = val; })) return _value;
                 if (maybe([&] { return parse_array(); }, [&](auto&& val) { _value = val; })) return _value;
 
                 do {
                     auto _ = push();
+
+                    maybe([&] { return parse_comment(); });
+                    ignore(whitespace);
 
                     if (consume("true")) _value = true;
                     else if (consume("false")) _value = false;
@@ -1106,5 +1151,12 @@ namespace kaixo {
     };
 
     // ------------------------------------------------
+    
+    std::ostream& operator<<(std::ostream& stream, const basic_json& object) {
+        stream << object.to_string();
+        return stream;
+    }
 
+    // ------------------------------------------------
+    
 }

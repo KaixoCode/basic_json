@@ -221,6 +221,93 @@ namespace kaixo::test {
     ));
 
     // ------------------------------------------------
+    
+    class ParseStringMemberTests : public ::testing::TestWithParam<std::tuple<std::string, std::string>> {};
+
+    TEST_P(ParseStringMemberTests, ParseString) {
+        auto& [string, expected] = GetParam();
+        basic_json::parser parser{ string };
+        auto member = parser.parse_member();
+        ASSERT_TRUE(member.has_value());
+        auto& result = member.value();
+        auto& key = result.first;
+        auto& value = result.second;
+        ASSERT_TRUE(value.is<std::string>());
+        auto valueString = value.as<std::string_view>();
+        ASSERT_EQ(key, "member");
+        ASSERT_EQ(valueString, expected);
+    }
+
+    INSTANTIATE_TEST_CASE_P(JsonStrings, ParseStringMemberTests, ::testing::Values(
+        std::make_tuple(R"~~("member":"value")~~", "value"),
+        std::make_tuple(R"~~("member": "value" )~~", "value"),
+        std::make_tuple(R"~~(member:"value")~~", "value"),
+        std::make_tuple(R"~~(member: "value" )~~", "value"),
+        std::make_tuple(R"~~( member :"value")~~", "value"),
+        std::make_tuple(R"~~( member : "value" )~~", "value"),
+        std::make_tuple(R"~~("member":value)~~", "value"),
+        std::make_tuple(R"~~("member": value )~~", "value"),
+        std::make_tuple(R"~~(member:value)~~", "value"),
+        std::make_tuple(R"~~(member: value )~~", "value"),
+        std::make_tuple(R"~~( member :value)~~", "value"),
+        std::make_tuple(R"~~( member : value )~~", "value")
+    ));
+
+    // ------------------------------------------------
+    
+    // ------------------------------------------------
+    
+    class ParseJsonObjectTests : public ::testing::TestWithParam<std::tuple<std::string, basic_json>> {};
+
+    TEST_P(ParseJsonObjectTests, ParseObject) {
+        auto& [string, expected] = GetParam();
+        auto object = basic_json::parse(string);
+        ASSERT_TRUE(object.has_value());
+        ASSERT_EQ(object.value(), expected);
+    }
+
+    INSTANTIATE_TEST_CASE_P(JsonObjects, ParseJsonObjectTests, ::testing::Values(
+        std::make_tuple(R"~~({
+            a: // comment
+               v
+            b: v v
+            c: /* comment */ 1, d: v
+            e: 1 #comment
+            // Comment
+            f: true, g /* comment */ : "v",
+            h # comment
+              : null,
+            " ": true 1
+            i: false 1
+            j: null 1
+            k: 1 1
+            l: '''
+               a
+                b
+                 c
+               '''
+            m: a: []
+            n: " {} "
+        })~~", basic_json{
+            { "a", "v" },
+            { "b", "v v" },
+            { "c", 1 },
+            { "d", "v" },
+            { "e", 1 },
+            { "f", true },
+            { "g", "v"},
+            { "h", nullptr },
+            { " ", "true 1" },
+            { "i", "false 1" },
+            { "j", "null 1" },
+            { "k", "1 1" },
+            { "l", "a\n b\n  c" },
+            { "m", "a: []" },
+            { "n", " {} " },
+        })
+    ));
+
+    // ------------------------------------------------
 
 }
 
