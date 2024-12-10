@@ -511,28 +511,44 @@ namespace kaixo {
 
             // ------------------------------------------------
 
-            std::unexpected<std::string> die(std::string_view message) const {
-                std::size_t newlines = 0, charsInLine = 0;
-                for (auto& c : original.substr(0, original.size() - value.size())) {
-                    ++charsInLine;
-                    if (c == '\n') ++newlines, charsInLine = 0;
+            struct backup_struct {
+
+                // ------------------------------------------------
+
+                parser* self;
+                std::string_view backup;
+
+                // ------------------------------------------------
+
+                void revert() { self->value = backup; }
+
+                // ------------------------------------------------
+
+                std::unexpected<std::string> revert(std::string_view message) {
+                    std::string_view parsed = self->original.substr(0, self->original.size() - self->value.size());
+                    std::size_t newlines = 0;
+                    std::size_t charsInLine = 0;
+
+                    for (auto& c : parsed) {
+                        ++charsInLine;
+                        if (c == '\n') ++newlines, charsInLine = 0;
+                    }
+                    
+                    revert();
+
+                    return std::unexpected{ 
+                        std::format("line {}, character {}: {}", newlines, charsInLine, message) 
+                    };
                 }
-                return std::unexpected{ std::format("line {}, character {}: {}", newlines, charsInLine, message) };
-            }
+
+                // ------------------------------------------------
+
+            };
 
             // ------------------------------------------------
 
-            auto push() { // Simple undo struct that undoes any changes if they're not committed
-                struct undo {
-                    parser* self;
-                    std::string_view backup;
-                    bool committed = false;
-                    void commit() { committed = true; }
-                    void revert() { committed = false; }
-                    ~undo() { if (!committed) self->value = backup; }
-                };
-                return undo{ this, value };
-            }
+            backup_struct backup() { return backup_struct{ this, value }; }
+            std::unexpected<std::string> fail(std::string_view message) { return backup().revert(message); }
 
             // ------------------------------------------------
 
@@ -573,7 +589,7 @@ namespace kaixo {
             void ignore(std::string_view anyOf = whitespace) { consume_while(anyOf); }
 
             void removeIgnored(bool newline = true) {
-                parse_comment();
+                parse_comment(newline);
                 ignore(newline ? whitespace : whitespace_no_lf);
             }
 
@@ -599,22 +615,22 @@ namespace kaixo {
                 if (!maybe(fun, assign)) return;
                 while (true) {
                     { // First try comma
-                        auto _ = push(); 
+                        auto _ = backup(); 
                         removeIgnored();
                         if (consume(",")) {
-                            _.commit();
                             if (!maybe(fun, assign)) return;
                             continue;
                         }
+                        _.revert();
                     }
                     { // Otherwise try LF
-                        auto _ = push();
+                        auto _ = backup();
                         removeIgnored(false);
                         if (consume("\n")) {
-                            _.commit();
                             if (!maybe(fun, assign)) return;
                             continue;
                         }
+                        _.revert();
                     }
                     return;
                 }
@@ -622,12 +638,12 @@ namespace kaixo {
 
             // ------------------------------------------------
 
-            result<int> parse_comment() {
+            result<int> parse_comment(bool newline = true) {
                 int nofCommentsParsed = 0;
                 while (true) {
-                    auto _ = push();
+                    auto _ = backup();
 
-                    ignore(whitespace);
+                    ignore(newline ? whitespace : whitespace_no_lf);
                     if (consume("#")) consume_while_not("\n");
                     else if (consume("//")) consume_while_not("\n");
                     else if (consume("/*")) {
@@ -640,25 +656,20 @@ namespace kaixo {
                             }
                         }
 
-                        if (!closed) {
-                            _.revert();
-                            return die("Expected end of multi-line comment");
-                        }
+                        if (!closed) return _.revert("Expected end of multi-line comment");
                     } else {
-                        if (nofCommentsParsed == 0) return die("No comments parsed"); // No more comments
+                        if (nofCommentsParsed == 0) return _.revert("No comments parsed"); // No more comments
                         else return nofCommentsParsed;
                     }
 
                     ++nofCommentsParsed;
-
-                    _.commit();
                 }
             }
 
             // ------------------------------------------------
 
             result<number_t> parse_number() {
-                auto _ = push();
+                auto _ = backup();
                 removeIgnored();
 
                 bool negative = false;
@@ -669,7 +680,7 @@ namespace kaixo {
                     pre = "0";
                 } else {
                     if (auto c = consume_one_of("123456789")) pre += c.value();
-                    else return die("Expected at least 1 digit in number");
+                    else return _.revert("Expected at least 1 digit in number");
                     while (auto c = consume_one_of("0123456789")) pre += c.value();
                 }
 
@@ -678,7 +689,7 @@ namespace kaixo {
                 if (consume(".")) {
                     fractional = true;
                     while (auto c = consume_one_of("0123456789")) post += c.value();
-                    if (post.empty()) return die("Expected at least 1 decimal digit");
+                    if (post.empty()) return _.revert("Expected at least 1 decimal digit");
                 }
 
                 std::string exponent = "";
@@ -691,10 +702,9 @@ namespace kaixo {
                     else if (consume("-")) negativeExponent = true;
 
                     while (auto c = consume_one_of("0123456789")) exponent += c.value();
-                    if (exponent.empty()) return die("Expected at least 1 exponent digit");
+                    if (exponent.empty()) return _.revert("Expected at least 1 exponent digit");
                 }
 
-                _.commit();
                 std::string fullStr = (fractional ? pre + "." + post : pre)
                                     + (hasExponent ? (negativeExponent ? "E-" : "E+") + exponent : "");
                 if (fractional || hasExponent) {
@@ -711,16 +721,16 @@ namespace kaixo {
             // ------------------------------------------------
 
             result<string_t> parse_json_string() {
-                auto _ = push();
+                auto _ = backup();
                 string_t _result{};
 
                 removeIgnored();
                 auto v = consume_one_of("\"'");
-                if (!v) return die("Expected \" or ' to start json string");
+                if (!v) return _.revert("Expected \" or ' to start json string");
                 bool smallQuote = v == '\'';
                 while (true) {
                     _result += consume_while_not(smallQuote ? "'\\" : "\"\\");
-                    if (consume(smallQuote ? "\'" : "\"")) break; // String ended
+                    if (consume(smallQuote ? "\'" : "\"")) return _result; // String ended
                     if (consume("\\")) { // Escaped character
                         if (consume("\"")) _result += "\"";
                         else if (consume("\'")) _result += "\'";
@@ -731,34 +741,30 @@ namespace kaixo {
                         else if (consume("n")) _result += "\n";
                         else if (consume("r")) _result += "\r";
                         else if (consume("t")) _result += "\t";
-                        else if (consume("u")) return die("Unicode is currently not supported");
-                        else return die("Wrong escape character");
+                        else if (consume("u")) return _.revert("Unicode is currently not supported");
+                        else return _.revert("Wrong escape character");
                     }
                 }
-
-                _.commit();
-                return _result;
             }
 
             result<string_t> parse_quoteless_string() {
-                auto _ = push();
+                auto _ = backup();
                 removeIgnored();
                 
                 if (value.empty() || one_of(value[0], "[]{},:")) 
-                    return die("Quoteless string cannot start with any of \"[]{},:\"");
+                    return _.revert("Quoteless string cannot start with any of \"[]{},:\"");
 
-                _.commit();
                 auto _result = consume_while_not("\n");
                 _result = _result.substr(0, _result.find_last_not_of(whitespace) + 1);
                 return string_t{ _result }; // ^^^ Remove whitespace from end
             }
             
             result<string_t> parse_multiline_string() {
-                auto _ = push();
+                auto _ = backup();
                 removeIgnored();
 
                 std::int64_t _columnsBeforeStart = nof_characters_since_last('\n');
-                if (!consume("'''")) return die("Expected ''' to start multi-line string");
+                if (!consume("'''")) return _.revert("Expected ''' to start multi-line string");
                 ignore(whitespace_no_lf);
                 consume("\n");
 
@@ -768,87 +774,78 @@ namespace kaixo {
                     ignore(whitespace_no_lf);
 
                     std::size_t index = nof_characters_since_last('\n');
-                    if (index == std::string_view::npos) return die("Unexpected error");
+                    if (index == std::string_view::npos) return _.revert("Unexpected error");
                     std::int64_t _spaces = std::max(static_cast<std::int64_t>(index) - _columnsBeforeStart, 0ll);
 
-                    if (consume("'''")) break; // End of string
+                    if (consume("'''")) return _result; // End of string
                     
-                    if (first) {
-                        first = false;
-                    } else {
-                        _result += '\n';
-                    }
+                    if (!first) _result += '\n';
+                    first = false;
 
                     for (std::size_t i = 0; i < _spaces; ++i) _result += ' ';
                     _result += consume_while_not("\n"); // Consume til end of line
                     consume("\n");
                 }
-
-                _.commit();
-                return _result;
             }
 
             result<string_t> parse_string() {
                 if (auto str = parse_multiline_string()) return str;
                 if (auto str = parse_json_string()) return str;
                 if (auto str = parse_quoteless_string()) return str;
-                return die("Expected string");
+                return fail("Expected string");
             }
 
             // ------------------------------------------------
 
             result<std::pair<string_t, basic_json>> parse_member() {
-                auto _ = push();
+                auto _ = backup();
                 string_t _key{};
                 basic_json _value{};
 
                 removeIgnored();
                 if (!maybe([&] { return parse_json_string(); }, _key)) _key = consume_while_not(",:[]{} \t\n\r\f\v");
-                if (_key.empty()) return die("Cannot have empty key");
+                if (_key.empty()) return _.revert("Cannot have empty key");
                 removeIgnored();
-                if (!consume(":")) return die("Expected ':' after key name");
-                if (!maybe([&] { return parse_value(); }, _value)) return die("Expected value");
+                if (!consume(":")) return _.revert("Expected ':' after key name");
+                if (!maybe([&] { return parse_value(); }, _value)) return _.revert("Expected value");
 
-                _.commit();
                 return { { _key, _value } };
             }
 
             // ------------------------------------------------
 
             result<object_t> parse_object() {
-                auto _ = push();
+                auto _ = backup();
                 object_t _result{};
 
                 removeIgnored();
-                if (!consume("{")) return die("Expected '{' to begin Object");
-                parse_list([&] { return parse_member(); }, [&](auto&& val) { _result.put(val, _result.end()); });
+                if (!consume("{")) return _.revert("Expected '{' to begin Object");
+                parse_list([&] { return parse_member(); }, [&](auto&& val) { _result.put(std::move(val), _result.end()); });
                 removeIgnored();
-                if (!consume("}")) return die("Expected '}' to close Object");
+                if (!consume("}")) return _.revert("Expected '}' to close Object");
 
-                _.commit();
                 return _result;
             }
 
             // ------------------------------------------------
 
             result<array_t> parse_array() {
-                auto _ = push();
+                auto _ = backup();
                 array_t _result{};
                 
                 removeIgnored();
-                if (!consume("[")) return die("Expected '[' to begin Array");
-                parse_list([&] { return parse_value(); }, [&](auto&& val) { _result.push_back(val); });
+                if (!consume("[")) return _.revert("Expected '[' to begin Array");
+                parse_list([&] { return parse_value(); }, [&](auto&& val) { _result.push_back(std::move(val)); });
                 removeIgnored();
-                if (!consume("]")) return die("Expected ']' to close Array");
+                if (!consume("]")) return _.revert("Expected ']' to close Array");
 
-                _.commit();
                 return _result;
             }
 
             // ------------------------------------------------
 
             result<basic_json> parse_value_ambiguous() {
-                auto _ = push();
+                auto _ = backup();
                 basic_json _value{};
 
                 removeIgnored();
@@ -856,19 +853,19 @@ namespace kaixo {
                 else if (consume("false")) _value = false;
                 else if (consume("null")) _value = nullptr;
                 else if (maybe([&] { return parse_number(); }, _value));
-                else return die(""); // Not a potentially ambiguous value
+                else return _.revert("Not a potentially ambiguous value");
 
                 // Because after a true/false/null/number there could
                 // be other characters that could turn it into a string
                 // check whether this really is the parsed type.
-                auto backup = push(); // backup, because we don't want to actually consume 
+                auto temp = backup(); // backup, because we don't want to actually consume 
                 ignore(whitespace_no_lf);
                 if (parse_comment() || consume_one_of("\n,][}{:")) {
-                    _.commit();
+                    temp.revert();
                     return _value;
                 }
 
-                return die("");
+                return _.revert("Value turned out to be a string");
             }
 
             result<basic_json> parse_value() {
@@ -876,7 +873,7 @@ namespace kaixo {
                 if (auto _value = parse_array()) return _value;
                 if (auto _value = parse_value_ambiguous()) return _value;
                 if (auto _value = parse_string()) return _value;
-                return die("Expected value");
+                return fail("Expected value");
             }
 
             // ------------------------------------------------
