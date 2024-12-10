@@ -412,11 +412,8 @@ namespace kaixo {
         object_t::iterator merge(const basic_json& other, object_t::iterator where) {
             if (!is<object_t>()) return where; // Don't know where you got that iterator from, but I ain't an object
             other.foreach([&](const string_t& key, const basic_json& val) {
-                if (!contains(key)) {
-                    where = as<object_t>().put({ key, val }, where);
-                } else if (val.is<object_t>()) {
-                    this->operator[](key).merge(val);
-                }
+                if (!contains(key)) where = as<object_t>().put({ key, val }, where);
+                else if (val.is<object_t>()) this->operator[](key).merge(val);
             });
             return where;
         }
@@ -501,8 +498,7 @@ namespace kaixo {
 
             // ------------------------------------------------
 
-            template<class Ty = void>
-            using result = std::expected<Ty, std::string>;
+            template<class Ty = void> using result = std::expected<Ty, std::string>;
 
             // ------------------------------------------------
 
@@ -528,17 +524,13 @@ namespace kaixo {
                     std::string_view parsed = self->original.substr(0, self->original.size() - self->value.size());
                     std::size_t newlines = 0;
                     std::size_t charsInLine = 0;
-
                     for (auto& c : parsed) {
                         ++charsInLine;
                         if (c == '\n') ++newlines, charsInLine = 0;
                     }
                     
                     revert();
-
-                    return std::unexpected{ 
-                        std::format("line {}, character {}: {}", newlines, charsInLine, message) 
-                    };
+                    return std::unexpected{ std::format("line {}, character {}: {}", newlines, charsInLine, message) };
                 }
 
                 // ------------------------------------------------
@@ -639,8 +631,7 @@ namespace kaixo {
             // ------------------------------------------------
 
             result<int> parse_comment(bool newline = true) {
-                int nofCommentsParsed = 0;
-                while (true) {
+                for (int nofCommentsParsed = 0;; ++nofCommentsParsed) {
                     auto _ = backup();
 
                     ignore(newline ? whitespace : whitespace_no_lf);
@@ -650,19 +641,13 @@ namespace kaixo {
                         bool closed = false;
                         while (!value.empty()) {
                             consume_while_not("*");
-                            if (consume("*") && consume("/")) {
-                                closed = true;
-                                break;
-                            }
+                            if (consume("*") && consume("/")) { closed = true; break; }
                         }
-
                         if (!closed) return _.revert("Expected end of multi-line comment");
                     } else {
                         if (nofCommentsParsed == 0) return _.revert("No comments parsed"); // No more comments
                         else return nofCommentsParsed;
                     }
-
-                    ++nofCommentsParsed;
                 }
             }
 
@@ -671,36 +656,21 @@ namespace kaixo {
             result<number_t> parse_number() {
                 auto _ = backup();
                 removeIgnored();
+                std::string exponent = "", pre = "", post = "";
+                bool negative = consume("-"), hasExponent = false, negativeExponent = false, fractional = false;
 
-                bool negative = false;
-                if (consume("-")) negative = true;
+                if (consume("0")) pre = "0";
+                else while (auto c = consume_one_of("0123456789")) pre += c.value();
+                if (pre.empty()) return _.revert("Expected at least 1 digit in number");
 
-                std::string pre = "";
-                if (consume("0")) {
-                    pre = "0";
-                } else {
-                    if (auto c = consume_one_of("123456789")) pre += c.value();
-                    else return _.revert("Expected at least 1 digit in number");
-                    while (auto c = consume_one_of("0123456789")) pre += c.value();
-                }
-
-                std::string post = "";
-                bool fractional = false;
-                if (consume(".")) {
-                    fractional = true;
+                if (fractional = consume(".")) {
                     while (auto c = consume_one_of("0123456789")) post += c.value();
                     if (post.empty()) return _.revert("Expected at least 1 decimal digit");
                 }
 
-                std::string exponent = "";
-                bool hasExponent = false;
-                bool negativeExponent = false;
-                if (consume_one_of("eE")) {
-                    hasExponent = true;
-
+                if (hasExponent = static_cast<bool>(consume_one_of("eE"))) {
                     if (consume("+")) negativeExponent = false;
                     else if (consume("-")) negativeExponent = true;
-
                     while (auto c = consume_one_of("0123456789")) exponent += c.value();
                     if (exponent.empty()) return _.revert("Expected at least 1 exponent digit");
                 }
@@ -728,7 +698,7 @@ namespace kaixo {
                 auto v = consume_one_of("\"'");
                 if (!v) return _.revert("Expected \" or ' to start json string");
                 bool smallQuote = v == '\'';
-                while (true) {
+                while (!value.empty()) {
                     _result += consume_while_not(smallQuote ? "'\\" : "\"\\");
                     if (consume(smallQuote ? "\'" : "\"")) return _result; // String ended
                     if (consume("\\")) { // Escaped character
@@ -751,9 +721,7 @@ namespace kaixo {
                 auto _ = backup();
                 removeIgnored();
                 
-                if (value.empty() || one_of(value[0], "[]{},:")) 
-                    return _.revert("Quoteless string cannot start with any of \"[]{},:\"");
-
+                if (consume_one_of("[]{},:")) return _.revert("Quoteless string cannot start with any of \"[]{},:\"");
                 auto _result = consume_while_not("\n");
                 _result = _result.substr(0, _result.find_last_not_of(whitespace) + 1);
                 return string_t{ _result }; // ^^^ Remove whitespace from end
@@ -762,29 +730,32 @@ namespace kaixo {
             result<string_t> parse_multiline_string() {
                 auto _ = backup();
                 removeIgnored();
+                string_t _result = "";
 
                 std::int64_t _columnsBeforeStart = nof_characters_since_last('\n');
                 if (!consume("'''")) return _.revert("Expected ''' to start multi-line string");
                 ignore(whitespace_no_lf);
-                consume("\n");
+                bool startsOnNewLine = consume("\n");
 
-                bool first = true;
-                string_t _result = "";
-                while (true) {
+                bool firstLine = true;
+                while (!value.empty()) {
                     ignore(whitespace_no_lf);
+                    if (consume("'''")) return _result; // End of string
 
                     std::size_t index = nof_characters_since_last('\n');
                     if (index == std::string_view::npos) return _.revert("Unexpected error");
-                    std::int64_t _spaces = std::max(static_cast<std::int64_t>(index) - _columnsBeforeStart, 0ll);
-
-                    if (consume("'''")) return _result; // End of string
+                    std::int64_t spaces = std::max(static_cast<std::int64_t>(index) - _columnsBeforeStart, 0ll);
+                    if (firstLine && !startsOnNewLine) spaces -= 3; // remove 3 spaces to account for ''' on first line
                     
-                    if (!first) _result += '\n';
-                    first = false;
+                    if (!firstLine) _result += '\n';
+                    else firstLine = false;
 
-                    for (std::size_t i = 0; i < _spaces; ++i) _result += ' ';
-                    _result += consume_while_not("\n"); // Consume til end of line
-                    consume("\n");
+                     _result += std::string(spaces, ' ');
+                    while (!value.empty()) {
+                        _result += consume_while_not("\n'");
+                        if (consume("'''")) return _result; // End of string
+                        else if (consume("\n")) break;      // End of line
+                    }
                 }
             }
 
@@ -855,9 +826,8 @@ namespace kaixo {
                 else if (maybe([&] { return parse_number(); }, _value));
                 else return _.revert("Not a potentially ambiguous value");
 
-                // Because after a true/false/null/number there could
-                // be other characters that could turn it into a string
-                // check whether this really is the parsed type.
+                // Because after a true/false/null/number there could be other characters that
+                // could turn it into a string check whether this really is the parsed type.
                 auto temp = backup(); // backup, because we don't want to actually consume 
                 ignore(whitespace_no_lf);
                 if (parse_comment() || consume_one_of("\n,][}{:")) {
@@ -882,7 +852,7 @@ namespace kaixo {
 
         // ------------------------------------------------
         
-        static parser::result<basic_json> parse(std::string_view json) { return parser{ json }.parse_object(); }
+        static parser::result<basic_json> parse(std::string_view json) { return parser{ json }.parse_value(); }
 
         // ------------------------------------------------
         

@@ -267,7 +267,6 @@ namespace kaixo::test {
     }
 
     INSTANTIATE_TEST_CASE_P(JsonObjects, ParseJsonObjectTests, ::testing::Values(
-        std::make_tuple(R"~~({ value: '''a''' })~~", basic_json{}),
         std::make_tuple(R"~~({
             a: // comment
                v
@@ -289,9 +288,15 @@ namespace kaixo::test {
                '''
             m: a: []
             n: " {} " /* Comment
-         */, o: '"\'',
+        */, o: '"\'',
             p: "\"'",
             q: "\/\\\b\f\n\r\t",
+            r: ''' string '''
+            s: ''' string 
+                a '''
+            t: ''' string 
+                a 
+               '''
         })~~", basic_json{
             { "a", "v" },
             { "b", "v v" },
@@ -311,6 +316,9 @@ namespace kaixo::test {
             { "o", "\"'" },
             { "p", "\"'" },
             { "q", "/\\\b\f\n\r\t" },
+            { "r", " string " },
+            { "s", " string \n a " },
+            { "t", " string \n a " },
         })
     ));
 
