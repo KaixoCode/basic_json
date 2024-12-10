@@ -105,9 +105,7 @@ namespace kaixo {
 
         // ------------------------------------------------
 
-        template<class Ty>
-        struct type_alias : std::type_identity<null_t> {};
-        
+        template<class Ty> struct type_alias : std::type_identity<null_t> {};
         template<> struct type_alias<object_t>  : std::type_identity<object_t> {};
         template<> struct type_alias<array_t>   : std::type_identity<array_t> {};
         template<> struct type_alias<boolean_t> : std::type_identity<boolean_t> {};
@@ -118,26 +116,16 @@ namespace kaixo {
         template<class Ty> requires std::constructible_from<string_t, Ty>
         struct type_alias<Ty> : std::type_identity<string_t> {};
 
-        template<class Ty>
-        using type_alias_t = typename type_alias<Ty>::type;
-
         // ------------------------------------------------
         
-        template<class Ty> requires std::is_arithmetic_v<Ty>
-        struct number_type;
-        
+        template<class Ty> requires std::is_arithmetic_v<Ty> struct number_type;
         template<std::floating_point Ty>    struct number_type<Ty> : std::type_identity<double> {};
         template<std::unsigned_integral Ty> struct number_type<Ty> : std::type_identity<std::uint64_t> {};
         template<std::signed_integral Ty>   struct number_type<Ty> : std::type_identity<std::int64_t> {};
 
-        template<class Ty>
-        using number_type_t = typename number_type<Ty>::type;
-
         // ------------------------------------------------
 
-        template<class Ty> 
-        struct type_index_of : type_index_of<type_alias_t<Ty>> {};
-
+        template<class Ty> struct type_index_of : type_index_of<typename type_alias<Ty>::type> {};
         template<> struct type_index_of<boolean_t> : std::integral_constant<type_index, boolean> {};
         template<> struct type_index_of<string_t>  : std::integral_constant<type_index, string> {};
         template<> struct type_index_of<number_t>  : std::integral_constant<type_index, number> {};
@@ -145,14 +133,9 @@ namespace kaixo {
         template<> struct type_index_of<object_t>  : std::integral_constant<type_index, object> {};
         template<> struct type_index_of<null_t>    : std::integral_constant<type_index, null> {};
 
-        template<class Ty>
-        constexpr static type_index type_index_of_v = type_index_of<Ty>::value;
+        // ------------------------------------------------
 
     public:
-        // ------------------------------------------------
-        //                 Constructors
-        // ------------------------------------------------
-
         basic_json() = default;
 
         basic_json(null_t) : _value(null_t{}) {}
@@ -172,7 +155,7 @@ namespace kaixo {
 
         template<class Ty> requires std::is_arithmetic_v<Ty>
         basic_json(Ty value)
-            : _value(number_t{ static_cast<number_type_t<Ty>>(value) })
+            : _value(number_t{ static_cast<typename number_type<Ty>::type>(value) })
         {}
         
         basic_json(std::initializer_list<object_t::value_type> values)
@@ -200,7 +183,7 @@ namespace kaixo {
         template<class Ty = void>
         bool is(type_index t = undefined) const {
             if constexpr (std::same_as<Ty, void>) return t == type();
-            else return type_index_of_v<Ty> == type();
+            else return type_index_of<Ty>::value == type();
         }
 
         // ------------------------------------------------
@@ -221,15 +204,7 @@ namespace kaixo {
         // ------------------------------------------------
 
         template<class Ty> requires (std::is_arithmetic_v<Ty> && !std::same_as<Ty, bool>)
-        Ty as() const {
-            const number_t& val = std::get<number_t>(_value);
-            switch (val.index()) {
-            case 0: return static_cast<Ty>(std::get<0>(val));
-            case 1: return static_cast<Ty>(std::get<1>(val));
-            case 2: return static_cast<Ty>(std::get<2>(val));
-            default: throw std::bad_cast();
-            }
-        }
+        Ty as() const { return std::visit([](auto val) { return static_cast<Ty>(val); }, std::get<number_t>(_value)); }
 
         template<std::same_as<boolean_t> Ty>               boolean_t as() const { return std::get<boolean_t>(_value); }
         template<std::same_as<std::string_view> Ty> std::string_view as() const { return std::get<string_t>(_value); }
@@ -327,8 +302,7 @@ namespace kaixo {
 
         template<class Ty>
         bool try_get(Ty& value) const {
-            if (is<Ty>()) return value = as<Ty>(), true;
-            else return false;
+            return is<Ty>() ? value = as<Ty>(), true : false;
         }
 
         template<class Ty>
@@ -340,25 +314,22 @@ namespace kaixo {
         template<class Ty>
         bool try_get(std::vector<Ty>& value) const {
             return foreach([&](auto& v) {
-                if (v.template is<Ty>()) {
-                    value.emplace_back(v.template as<Ty>());
-                }
+                if (v.template is<Ty>()) value.emplace_back(v.template as<Ty>());
             });
         }
         
         template<class Ty, std::size_t N>
         bool try_get(std::array<Ty, N>& value) const {
             if (size() < N) return false;
-            std::array<Ty, N> result;
+            std::array<Ty, N> result{};
             std::size_t index = 0;
             foreach([&](auto& v) {
                 if (v.template is<Ty>()) {
                     if (index == N) return false; // too many elements
-                    result[index] = v.template as<Ty>();
-                    ++index;
+                    result[index++] = v.template as<Ty>();
                 }
             });
-            value = result;
+            value = std::move(result);
             return true;
         }
         
@@ -482,77 +453,45 @@ namespace kaixo {
             case string: return '"' + escape(as<string_t>()) + '"';
             case boolean: return as<boolean_t>() ? "true" : "false";
             case null: return "null";
-            case array: return "[" 
-                + fold_left_first(views::transform(as<array_t>(), 
-                                                   [](auto& v) { return v.to_string(); }),
-                                  [](auto&& a, auto&& b) { return a + "," + b; }).value_or("") 
-                + "]";
-            case object: return "{" 
-                + fold_left_first(views::transform(as<object_t>(), 
-                                                   [&](auto& v) { return '"' + escape(v.first) + "\":" + v.second.to_string(); }), 
-                                  [](auto&& a, auto&& b) { return a + "," + b; }).value_or("") 
-                + "}";
+            case array: return '[' + fold_left_first(views::transform(as<array_t>(),
+                    [](auto& v) { return v.to_string(); }),
+                    [](auto&& a, auto&& b) { return a + ',' + b; }).value_or("") + ']';
+            case object: return '{' + fold_left_first(views::transform(as<object_t>(),
+                    [](auto& v) { return '"' + escape(v.first) + "\":" + v.second.to_string(); }), 
+                    [](auto&& a, auto&& b) { return a + ',' + b; }).value_or("") + '}';
             default: return "";
             }
         }
 
         std::string to_pretty_string(std::size_t indent = 0) {
-            std::string result;
-            bool first = true;
-
-            auto add = [&](std::string line = "", int x = 0, bool newline = true) {
-                for (std::size_t i = 0; i < x + indent; ++i) result += "    ";
-                result += line;
-                if (newline) result += "\n";
-            };
-
+            using namespace std::ranges;
+            const std::string spaces(indent * 4, ' ');
             switch (type()) {
             case array: {
-                bool hasNestedObject = false;
-                for (auto& val : as<array_t>()) {
-                    if (val.is(basic_json::object) || val.is(basic_json::array)) {
-                        hasNestedObject = true;
-                        break;
-                    }
-                }
+                bool hasNestedObject = as<array_t>().end() != std::ranges::find_if(as<array_t>(), [](auto& val) {
+                    return (val.is(basic_json::object) || val.is(basic_json::array)) && !val.empty();
+                });
 
                 if (hasNestedObject) {
-                    result += "[\n";
-                    for (auto& val : as<array_t>()) {
-                        if (!first) result += ",\n";
-                        add(val.to_pretty_string(indent + 1), 1, false);
-                        first = false;
-                    }
-                    result += '\n';
-                    add("]", 0, false);
-                } else {
-                    result += "[";
-                    for (auto& val : as<array_t>()) {
-                        if (!first) result += ", ";
-                        result += val.to_pretty_string(indent + 1);
-                        first = false;
-                    }
-                    result += "]";
-                }
-                return result;
+                    return "[\n" + fold_left_first(views::transform(as<array_t>(),
+                        [&](auto& v) { return spaces + "    " + v.to_pretty_string(indent + 1); }),
+                        [](auto&& a, auto&& b) { return a + ",\n" + b; }).value_or("") + '\n' + spaces + ']';
+                } 
+
+                return to_string();
             }
-            case object: {
-                result += "{\n";
-                for (auto& [key, val] : as<object_t>()) {
-                    if (!first) result += ",\n";
-                    add("\"" + escape(key) + "\": " + val.to_pretty_string(indent + 1), 1, false);
-                    first = false;
-                }
-                result += '\n';
-                add("}", 0, false);
-                return result;
-            }
+            case object:
+                if (empty()) return "{}";
+                return "{\n" + fold_left_first(views::transform(as<object_t>(),
+                    [&](auto& v) { return spaces + "    " + '"' + escape(v.first) + "\": " + v.second.to_pretty_string(indent + 1); }),
+                    [](auto&& a, auto&& b) { return a + ",\n" + b; }).value_or("") + '\n' + spaces + '}';
             default: return to_string();
             }
         }
 
         // ------------------------------------------------
 
+        // HJSON parser: https://hjson.github.io/syntax.html
         struct parser {
 
             // ------------------------------------------------
@@ -583,7 +522,7 @@ namespace kaixo {
 
             // ------------------------------------------------
 
-            auto push() { 
+            auto push() { // Simple undo struct that undoes any changes if they're not committed
                 struct undo {
                     parser* self;
                     std::string_view backup;
@@ -850,9 +789,9 @@ namespace kaixo {
             }
 
             result<string_t> parse_string() {
-                if (auto str = parse_multiline_string()) return str.value();
-                if (auto str = parse_json_string()) return str.value();
-                if (auto str = parse_quoteless_string()) return str.value();
+                if (auto str = parse_multiline_string()) return str;
+                if (auto str = parse_json_string()) return str;
+                if (auto str = parse_quoteless_string()) return str;
                 return die("Expected string");
             }
 
