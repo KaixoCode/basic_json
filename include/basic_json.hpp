@@ -83,15 +83,8 @@ namespace kaixo {
 
         // ------------------------------------------------
 
-        using type_index = std::uint8_t;
-        constexpr static type_index number = 0;
-        constexpr static type_index string = 1;
-        constexpr static type_index boolean = 2;
-        constexpr static type_index array = 3;
-        constexpr static type_index object = 4;
-        constexpr static type_index null = 5;
-        constexpr static type_index undefined = 6;
-
+        enum type_index { number = 0, string, boolean, array, object, null, undefined };
+        
         // ------------------------------------------------
 
         using number_t = std::variant<double, std::uint64_t, std::int64_t>;
@@ -103,19 +96,20 @@ namespace kaixo {
 
         // ------------------------------------------------
 
+    private:
         using value = std::variant<number_t, string_t, boolean_t, array_t, object_t, null_t>;
 
         // ------------------------------------------------
 
-        value _value = nullptr;
+        value _value = null_t{};
 
         // ------------------------------------------------
 
         template<class Ty>
         struct type_alias : std::type_identity<null_t> {};
         
-        template<> struct type_alias<object_t> : std::type_identity<object_t> {};
-        template<> struct type_alias<array_t> : std::type_identity<array_t> {};
+        template<> struct type_alias<object_t>  : std::type_identity<object_t> {};
+        template<> struct type_alias<array_t>   : std::type_identity<array_t> {};
         template<> struct type_alias<boolean_t> : std::type_identity<boolean_t> {};
 
         template<class Ty> requires std::is_arithmetic_v<Ty>
@@ -132,9 +126,9 @@ namespace kaixo {
         template<class Ty> requires std::is_arithmetic_v<Ty>
         struct number_type;
         
-        template<std::floating_point Ty> struct number_type<Ty> : std::type_identity<double> {};
+        template<std::floating_point Ty>    struct number_type<Ty> : std::type_identity<double> {};
         template<std::unsigned_integral Ty> struct number_type<Ty> : std::type_identity<std::uint64_t> {};
-        template<std::signed_integral Ty> struct number_type<Ty> : std::type_identity<std::int64_t> {};
+        template<std::signed_integral Ty>   struct number_type<Ty> : std::type_identity<std::int64_t> {};
 
         template<class Ty>
         using number_type_t = typename number_type<Ty>::type;
@@ -145,17 +139,18 @@ namespace kaixo {
         struct type_index_of : type_index_of<type_alias_t<Ty>> {};
 
         template<> struct type_index_of<boolean_t> : std::integral_constant<type_index, boolean> {};
-        template<> struct type_index_of<string_t> : std::integral_constant<type_index, string> {};
-        template<> struct type_index_of<number_t> : std::integral_constant<type_index, number> {};
-        template<> struct type_index_of<array_t> : std::integral_constant<type_index, array> {};
-        template<> struct type_index_of<object_t> : std::integral_constant<type_index, object> {};
-        template<> struct type_index_of<null_t> : std::integral_constant<type_index, null> {};
+        template<> struct type_index_of<string_t>  : std::integral_constant<type_index, string> {};
+        template<> struct type_index_of<number_t>  : std::integral_constant<type_index, number> {};
+        template<> struct type_index_of<array_t>   : std::integral_constant<type_index, array> {};
+        template<> struct type_index_of<object_t>  : std::integral_constant<type_index, object> {};
+        template<> struct type_index_of<null_t>    : std::integral_constant<type_index, null> {};
 
         template<class Ty>
         constexpr static type_index type_index_of_v = type_index_of<Ty>::value;
 
+    public:
         // ------------------------------------------------
-        //                Constructors
+        //                 Constructors
         // ------------------------------------------------
 
         basic_json() = default;
@@ -165,10 +160,10 @@ namespace kaixo {
 
         basic_json(number_t&& value) : _value(std::move(value)) {}
         basic_json(object_t&& value) : _value(std::move(value)) {}
-        basic_json(array_t&& value) : _value(std::move(value)) {}
+        basic_json(array_t&& value)  : _value(std::move(value)) {}
         basic_json(const number_t& value) : _value(value) {}
         basic_json(const object_t& value) : _value(value) {}
-        basic_json(const array_t& value) : _value(value) {}
+        basic_json(const array_t& value)  : _value(value) {}
         
         template<class Ty> requires std::constructible_from<string_t, Ty&&>
         basic_json(Ty&& value)
@@ -236,31 +231,32 @@ namespace kaixo {
             }
         }
 
-        template<std::same_as<boolean_t> Ty> boolean_t as() const { return std::get<boolean_t>(_value); }
+        template<std::same_as<boolean_t> Ty>               boolean_t as() const { return std::get<boolean_t>(_value); }
         template<std::same_as<std::string_view> Ty> std::string_view as() const { return std::get<string_t>(_value); }
 
-        template<std::same_as<string_t> Ty> std::string& as() { return std::get<string_t>(_value); }
-        template<std::same_as<object_t> Ty> object_t& as() { return std::get<object_t>(_value); }
-        template<std::same_as<array_t> Ty> array_t& as() { return std::get<array_t>(_value); }
-
+        template<std::same_as<string_t> Ty>       string_t& as()       { return std::get<string_t>(_value); }
         template<std::same_as<string_t> Ty> const string_t& as() const { return std::get<string_t>(_value); }
+        template<std::same_as<object_t> Ty>       object_t& as()       { return std::get<object_t>(_value); }
         template<std::same_as<object_t> Ty> const object_t& as() const { return std::get<object_t>(_value); }
-        template<std::same_as<array_t> Ty> const array_t& as() const { return std::get<array_t>(_value); }
+        template<std::same_as<array_t> Ty>        array_t&  as()       { return std::get<array_t>(_value); }
+        template<std::same_as<array_t> Ty>  const array_t&  as() const { return std::get<array_t>(_value); }
         
         // ------------------------------------------------
-        
+
+    private:
         template<class Ty>
         Ty& _get_or_assign() {
             if (is<null_t>()) _value = Ty{};
             else if (!is<Ty>()) throw std::exception("Invalid type.");
             return as<Ty>();
         }
-        
+
         template<class Ty>
         const Ty& _get_or_assign() const {
             if (!is<Ty>()) throw std::exception("Invalid type.");
             return as<Ty>();
         }
+    public:
 
         // ------------------------------------------------
 
@@ -478,7 +474,7 @@ namespace kaixo {
         }
 
         // ------------------------------------------------
-        
+
         std::string to_string() const {
             using namespace std::ranges;
             switch (type()) {
@@ -529,8 +525,7 @@ namespace kaixo {
                     }
                     result += '\n';
                     add("]", 0, false);
-                }
-                else {
+                } else {
                     result += "[";
                     for (auto& val : as<array_t>()) {
                         if (!first) result += ", ";
@@ -558,22 +553,6 @@ namespace kaixo {
 
         // ------------------------------------------------
 
-        static std::string escape(std::string_view str) {
-            std::string _str{ str };
-            string_replace(_str, "\\", "\\\\");
-            string_replace(_str, "\b", "\\b");
-            string_replace(_str, "\f", "\\f");
-            string_replace(_str, "\n", "\\n");
-            string_replace(_str, "\r", "\\r");
-            string_replace(_str, "\t", "\\t");
-            string_replace(_str, "\"", "\\\"");
-            string_replace(_str, "\'", "\\'");
-            string_replace(_str, "/", "\\/");
-            return _str;
-        }
-
-        // ------------------------------------------------
-
         struct parser {
 
             // ------------------------------------------------
@@ -583,139 +562,63 @@ namespace kaixo {
 
             // ------------------------------------------------
 
+            template<class Ty = void>
+            using result = std::expected<Ty, std::string>;
+
+            // ------------------------------------------------
+
             std::string_view original;
             std::string_view value = original;
 
             // ------------------------------------------------
 
-            template<class Ty = void>
-            struct result : std::expected<Ty, std::string> {
-
-                // ------------------------------------------------
-
-                using std::expected<Ty, std::string>::expected;
-
-                constexpr result(result<void>&& other) 
-                    : std::expected<Ty, std::string>(std::unexpected(std::move(other._message)))
-                {}
-
-                constexpr result(std::string_view message) 
-                    : std::expected<Ty, std::string>(std::string(message))
-                {}
-
-                // ------------------------------------------------
-
-                constexpr bool valid() const { return this->has_value(); }
-                constexpr operator bool() const { return valid(); }
-                constexpr std::string_view what() const { return this->error(); }
-
-                // ------------------------------------------------
-
-            };
-
-            // ------------------------------------------------
-
-            template<>
-            struct result<void> {
-
-                // ------------------------------------------------
-
-                std::string _message;
-
-                // ------------------------------------------------
-
-                bool valid() const { return false; }
-                std::string_view what() const { return _message; }
-
-                // ------------------------------------------------
-
-            };
-
-            // ------------------------------------------------
-
-            result<> die(std::string_view message) const {
-                std::size_t parsed = original.size() - value.size();
-                std::size_t newlines = 0;
-                std::size_t charsInLine = 0;
-                for (auto& c : original.substr(0, parsed)) {
+            std::unexpected<std::string> die(std::string_view message) const {
+                std::size_t newlines = 0, charsInLine = 0;
+                for (auto& c : original.substr(0, original.size() - value.size())) {
                     ++charsInLine;
-                    if (c == '\n') {
-                        ++newlines;
-                        charsInLine = 0;
-                    }
+                    if (c == '\n') ++newlines, charsInLine = 0;
                 }
-
-                return { std::format("line {}, character {}: {}", newlines, charsInLine, message) };
+                return std::unexpected{ std::format("line {}, character {}: {}", newlines, charsInLine, message) };
             }
 
             // ------------------------------------------------
 
-            struct undo {
-
-                // ------------------------------------------------
-
-                parser* self;
-                std::string_view backup;
-                bool committed = false;
-
-                // ------------------------------------------------
-
-                void commit() { committed = true; }
-                void revert() { committed = false; }
-
-                // ------------------------------------------------
-
-                ~undo() { if (!committed) self->value = backup; }
-
-                // ------------------------------------------------
-
-            };
-            
-            undo push() { return undo{ this, value }; }
-
-            // ------------------------------------------------
-
-            bool maybe(auto fun) {
-                auto _ = push();
-                auto result = fun();
-                if (result.valid()) {
-                    _.commit();
-                    return true;
-                }
-                return false;
-            }
-            
-            bool maybe(auto fun, auto assign) {
-                auto _ = push();
-                auto result = fun();
-                if (result.valid()) {
-                    assign(std::move(result.value()));
-                    _.commit();
-                    return true;
-                }
-                return false;
+            auto push() { 
+                struct undo {
+                    parser* self;
+                    std::string_view backup;
+                    bool committed = false;
+                    void commit() { committed = true; }
+                    void revert() { committed = false; }
+                    ~undo() { if (!committed) self->value = backup; }
+                };
+                return undo{ this, value };
             }
 
             // ------------------------------------------------
 
-            bool consume(char c) {
-                if (value.empty() || !value.starts_with(c)) return false;
-                value = value.substr(1);
-                return true;
-            }
-            
             std::optional<char> consume_one_of(std::string_view chars) {
-                if (value.empty() || !one_of(value[0], chars)) return {};
+                if (value.empty() || !one_of(value[0], chars)) return std::nullopt;
                 char result = value[0];
                 value = value.substr(1);
                 return result;
             }
             
             bool consume(std::string_view word) {
-                if (value.empty() || !value.starts_with(word)) return false;
+                if (!value.starts_with(word)) return false;
                 value = value.substr(word.size());
                 return true;
             }
+
+            std::string_view consume_first(std::size_t i) {
+                std::size_t _end = std::min(i, value.size());
+                auto _result = value.substr(0, _end);
+                value = value.substr(_end);
+                return _result;
+            }
+            
+            std::string_view consume_while(std::string_view oneOfs) { return consume_first(value.find_first_not_of(oneOfs)); }
+            std::string_view consume_while_not(std::string_view oneOfs) { return consume_first(value.find_first_of(oneOfs)); }
 
             // ------------------------------------------------
             
@@ -728,52 +631,38 @@ namespace kaixo {
 
             // ------------------------------------------------
 
-            void ignore(std::string_view anyOf = whitespace) {
-                value = trim_begin(value, anyOf);
+            void ignore(std::string_view anyOf = whitespace) { consume_while(anyOf); }
+
+            void removeIgnored(bool newline = true) {
+                parse_comment();
+                ignore(newline ? whitespace : whitespace_no_lf);
             }
 
             // ------------------------------------------------
 
-            std::string_view consume_while(std::string_view oneOfs) {
-                std::size_t _end = 0;
-                for (_end = 0; _end < value.size(); ++_end) {
-                    if (!one_of(value[_end], oneOfs)) {
-                        auto _result = value.substr(0, _end);
-                        value = value.substr(_end);
-                        return _result;
+            template<class Lambda, class Assign>
+            bool maybe(Lambda&& fun, Assign&& assign) {
+                auto result = fun();
+                if (result.has_value()) {
+                    if constexpr (std::invocable<Assign, decltype(std::move(result.value()))>) {
+                        assign(std::move(result.value()));
+                    } else {
+                        assign = std::move(result.value());
                     }
                 }
-
-                auto _result = value;
-                value = "";
-                return _result;
-            }
-            
-            std::string_view consume_while_not(std::string_view oneOfs) {
-                std::size_t _end = 0;
-                for (_end = 0; _end < value.size(); ++_end) {
-                    if (one_of(value[_end], oneOfs)) {
-                        auto _result = value.substr(0, _end);
-                        value = value.substr(_end);
-                        return _result;
-                    }
-                }
-
-                auto _result = value;
-                value = "";
-                return _result;
+                return result.has_value();
             }
 
             // ------------------------------------------------
 
-            void parse_list(auto fun, auto assign) {
+            template<class Lambda, class Assign>
+            void parse_list(Lambda&& fun, Assign&& assign) {
                 if (!maybe(fun, assign)) return;
                 while (true) {
                     { // First try comma
                         auto _ = push(); 
-                        maybe([&] { return parse_comment(); });
-                        ignore(whitespace);
-                        if (consume(',')) {
+                        removeIgnored();
+                        if (consume(",")) {
                             _.commit();
                             if (!maybe(fun, assign)) return;
                             continue;
@@ -781,9 +670,8 @@ namespace kaixo {
                     }
                     { // Otherwise try LF
                         auto _ = push();
-                        maybe([&] { return parse_comment(); });
-                        ignore(whitespace_no_lf);
-                        if (consume('\n')) {
+                        removeIgnored(false);
+                        if (consume("\n")) {
                             _.commit();
                             if (!maybe(fun, assign)) return;
                             continue;
@@ -801,7 +689,7 @@ namespace kaixo {
                     auto _ = push();
 
                     ignore(whitespace);
-                    if (consume('#')) consume_while_not("\n");
+                    if (consume("#")) consume_while_not("\n");
                     else if (consume("//")) consume_while_not("\n");
                     else if (consume("/*")) {
                         bool closed = false;
@@ -832,19 +720,13 @@ namespace kaixo {
 
             result<number_t> parse_number() {
                 auto _ = push();
+                removeIgnored();
 
                 bool negative = false;
-                bool fractional = false;
-                bool hasExponent = false;
-                bool negativeExponent = false;
-                std::string pre = "", post = "", exponent = "";
+                if (consume("-")) negative = true;
 
-                maybe([&] { return parse_comment(); });
-                ignore(whitespace);
-
-                if (consume('-')) negative = true;
-
-                if (consume('0')) {
+                std::string pre = "";
+                if (consume("0")) {
                     pre = "0";
                 } else {
                     if (auto c = consume_one_of("123456789")) pre += c.value();
@@ -852,17 +734,22 @@ namespace kaixo {
                     while (auto c = consume_one_of("0123456789")) pre += c.value();
                 }
 
-                if (consume('.')) {
+                std::string post = "";
+                bool fractional = false;
+                if (consume(".")) {
                     fractional = true;
                     while (auto c = consume_one_of("0123456789")) post += c.value();
                     if (post.empty()) return die("Expected at least 1 decimal digit");
                 }
 
+                std::string exponent = "";
+                bool hasExponent = false;
+                bool negativeExponent = false;
                 if (consume_one_of("eE")) {
                     hasExponent = true;
 
-                    if (consume('+')) negativeExponent = false;
-                    else if (consume('-')) negativeExponent = true;
+                    if (consume("+")) negativeExponent = false;
+                    else if (consume("-")) negativeExponent = true;
 
                     while (auto c = consume_one_of("0123456789")) exponent += c.value();
                     if (exponent.empty()) return die("Expected at least 1 exponent digit");
@@ -870,7 +757,7 @@ namespace kaixo {
 
                 _.commit();
                 std::string fullStr = (fractional ? pre + "." + post : pre)
-                    + (hasExponent ? (negativeExponent ? "E-" : "E+") + exponent : "");
+                                    + (hasExponent ? (negativeExponent ? "E-" : "E+") + exponent : "");
                 if (fractional || hasExponent) {
                     double val = 0;
                     std::from_chars(fullStr.data(), fullStr.data() + fullStr.size(), val);
@@ -878,8 +765,7 @@ namespace kaixo {
                 } else {
                     std::uint64_t val = 0;
                     std::from_chars(fullStr.data(), fullStr.data() + fullStr.size(), val);
-                    if (negative) return { -static_cast<std::int64_t>(val) };
-                    else return { val };
+                    return negative ? number_t{ -static_cast<std::int64_t>(val) } : number_t{ val };
                 }
             }
 
@@ -887,32 +773,27 @@ namespace kaixo {
 
             result<string_t> parse_json_string() {
                 auto _ = push();
-                string_t _result;
+                string_t _result{};
 
-                maybe([&] { return parse_comment(); });
-                ignore(whitespace);
-
-                if (!consume('"')) return die("Expected '\"' to start json string");
-
+                removeIgnored();
+                auto v = consume_one_of("\"'");
+                if (!v) return die("Expected \" or ' to start json string");
+                bool smallQuote = v == '\'';
                 while (true) {
-                    _result += consume_while_not("\"\\");
-                    if (consume("\"")) break; // String ended
+                    _result += consume_while_not(smallQuote ? "'\\" : "\"\\");
+                    if (consume(smallQuote ? "\'" : "\"")) break; // String ended
                     if (consume("\\")) { // Escaped character
-                        if (consume("\"")) { _result += "\""; continue; }
-                        if (consume("\'")) { _result += "\'"; continue; }
-                        if (consume("\\")) { _result += "\\"; continue; }
-                        if (consume("/")) { _result += "/"; continue; }
-                        if (consume("b")) { _result += "\b"; continue; }
-                        if (consume("f")) { _result += "\f"; continue; }
-                        if (consume("n")) { _result += "\n"; continue; }
-                        if (consume("r")) { _result += "\r"; continue; }
-                        if (consume("t")) { _result += "\t"; continue; }
-                        if (consume("u")) { 
-                            return die("Unicode is currently not supported");
-                            // TODO: 4 hex digits unicode
-                            //continue;
-                        }
-                        return die("Wrong escape character");
+                        if (consume("\"")) _result += "\"";
+                        else if (consume("\'")) _result += "\'";
+                        else if (consume("\\")) _result += "\\";
+                        else if (consume("/")) _result += "/";
+                        else if (consume("b")) _result += "\b";
+                        else if (consume("f")) _result += "\f";
+                        else if (consume("n")) _result += "\n";
+                        else if (consume("r")) _result += "\r";
+                        else if (consume("t")) _result += "\t";
+                        else if (consume("u")) return die("Unicode is currently not supported");
+                        else return die("Wrong escape character");
                     }
                 }
 
@@ -922,35 +803,34 @@ namespace kaixo {
 
             result<string_t> parse_quoteless_string() {
                 auto _ = push();
+                removeIgnored();
+                
+                if (value.empty() || one_of(value[0], "[]{},:")) 
+                    return die("Quoteless string cannot start with any of \"[]{},:\"");
 
-                maybe([&] { return parse_comment(); });
-                ignore(whitespace);
-
-                if (value.empty() || one_of(value[0], "[]{},:")) return die("Empty string");
                 _.commit();
-                return trim(consume_while_not("\n")); // Consume til end of line
+                auto _result = consume_while_not("\n");
+                _result = _result.substr(0, _result.find_last_not_of(whitespace) + 1);
+                return string_t{ _result }; // ^^^ Remove whitespace from end
             }
             
             result<string_t> parse_multiline_string() {
                 auto _ = push();
-                string_t _result;
+                removeIgnored();
 
-                maybe([&] { return parse_comment(); });
-                ignore(whitespace);
-
-                std::int64_t _columns = nof_characters_since_last('\n');
-
+                std::int64_t _columnsBeforeStart = nof_characters_since_last('\n');
                 if (!consume("'''")) return die("Expected ''' to start multi-line string");
                 ignore(whitespace_no_lf);
-                consume('\n');
+                consume("\n");
 
                 bool first = true;
+                string_t _result = "";
                 while (true) {
                     ignore(whitespace_no_lf);
 
                     std::size_t index = nof_characters_since_last('\n');
                     if (index == std::string_view::npos) return die("Unexpected error");
-                    std::int64_t _spaces = std::max(static_cast<std::int64_t>(index) - _columns, 0ll);
+                    std::int64_t _spaces = std::max(static_cast<std::int64_t>(index) - _columnsBeforeStart, 0ll);
 
                     if (consume("'''")) break; // End of string
                     
@@ -962,7 +842,7 @@ namespace kaixo {
 
                     for (std::size_t i = 0; i < _spaces; ++i) _result += ' ';
                     _result += consume_while_not("\n"); // Consume til end of line
-                    consume('\n');
+                    consume("\n");
                 }
 
                 _.commit();
@@ -970,14 +850,9 @@ namespace kaixo {
             }
 
             result<string_t> parse_string() {
-                auto _ = push();
-                _.commit();
-
                 if (auto str = parse_multiline_string()) return str.value();
                 if (auto str = parse_json_string()) return str.value();
                 if (auto str = parse_quoteless_string()) return str.value();
-
-                _.revert();
                 return die("Expected string");
             }
 
@@ -985,50 +860,31 @@ namespace kaixo {
 
             result<std::pair<string_t, basic_json>> parse_member() {
                 auto _ = push();
-                string_t _name;
-                basic_json _value;
+                string_t _key{};
+                basic_json _value{};
 
-                maybe([&] { return parse_comment(); });
-                ignore(whitespace);
-
-                if (!maybe([&] { return parse_json_string(); }, [&](auto&& val) { _name = val; })) {
-                    _name = consume_while_not(",:[]{} \t\n\r\f\v");
-                }
-
-                if (_name.empty()) return die("Cannot have empty key");
-
-                maybe([&] { return parse_comment(); });
-                ignore(whitespace);
-
+                removeIgnored();
+                if (!maybe([&] { return parse_json_string(); }, _key)) _key = consume_while_not(",:[]{} \t\n\r\f\v");
+                if (_key.empty()) return die("Cannot have empty key");
+                removeIgnored();
                 if (!consume(":")) return die("Expected ':' after key name");
-
-                maybe([&] { return parse_comment(); });
-
-                if (!maybe([&] { return parse_value(); }, [&](auto&& val) { _value = val; }))
-                    return die("Expected value");
+                if (!maybe([&] { return parse_value(); }, _value)) return die("Expected value");
 
                 _.commit();
-                return { { _name, _value } };
+                return { { _key, _value } };
             }
 
             // ------------------------------------------------
 
             result<object_t> parse_object() {
                 auto _ = push();
-                
-                object_t _result;
+                object_t _result{};
 
-                maybe([&] { return parse_comment(); });
-                ignore(whitespace);
-
-                if (!consume('{')) return die("Expected '{' to begin Object");
-
+                removeIgnored();
+                if (!consume("{")) return die("Expected '{' to begin Object");
                 parse_list([&] { return parse_member(); }, [&](auto&& val) { _result.put(val, _result.end()); });
-
-                maybe([&] { return parse_comment(); });
-                ignore(whitespace);
-
-                if (!consume('}')) return die("Expected '}' to close Object");
+                removeIgnored();
+                if (!consume("}")) return die("Expected '}' to close Object");
 
                 _.commit();
                 return _result;
@@ -1038,20 +894,13 @@ namespace kaixo {
 
             result<array_t> parse_array() {
                 auto _ = push();
+                array_t _result{};
                 
-                array_t _result;
-
-                maybe([&] { return parse_comment(); });
-                ignore(whitespace);
-
-                if (!consume('[')) return die("Expected '[' to begin Array");
-
+                removeIgnored();
+                if (!consume("[")) return die("Expected '[' to begin Array");
                 parse_list([&] { return parse_value(); }, [&](auto&& val) { _result.push_back(val); });
-
-                maybe([&] { return parse_comment(); });
-                ignore(whitespace);
-
-                if (!consume(']')) return die("Expected ']' to close Array");
+                removeIgnored();
+                if (!consume("]")) return die("Expected ']' to close Array");
 
                 _.commit();
                 return _result;
@@ -1059,46 +908,35 @@ namespace kaixo {
 
             // ------------------------------------------------
 
-            result<basic_json> parse_value() {
+            result<basic_json> parse_value_ambiguous() {
                 auto _ = push();
-                _.commit();
+                basic_json _value{};
 
-                basic_json _value;
+                removeIgnored();
+                if (consume("true")) _value = true;
+                else if (consume("false")) _value = false;
+                else if (consume("null")) _value = nullptr;
+                else if (maybe([&] { return parse_number(); }, _value));
+                else return die(""); // Not a potentially ambiguous value
 
-                if (maybe([&] { return parse_object(); }, [&](auto&& val) { _value = val; })) return _value;
-                if (maybe([&] { return parse_array(); }, [&](auto&& val) { _value = val; })) return _value;
+                // Because after a true/false/null/number there could
+                // be other characters that could turn it into a string
+                // check whether this really is the parsed type.
+                auto backup = push(); // backup, because we don't want to actually consume 
+                ignore(whitespace_no_lf);
+                if (parse_comment() || consume_one_of("\n,][}{:")) {
+                    _.commit();
+                    return _value;
+                }
 
-                do {
-                    auto _ = push();
+                return die("");
+            }
 
-                    maybe([&] { return parse_comment(); });
-                    ignore(whitespace);
-
-                    if (consume("true")) _value = true;
-                    else if (consume("false")) _value = false;
-                    else if (consume("null")) _value = nullptr;
-                    else if (maybe([&] { return parse_number(); }, [&](auto&& val) { _value = val; }));
-                    else break;
-
-                    // Make sure it's end of value, otherwise it's string
-                    bool _valid = false;
-                    {
-                        auto _ = push();
-                        ignore(whitespace_no_lf);
-
-                        _valid = maybe([&] { return parse_comment(); })
-                              || consume_one_of("\n,][}{:");
-                    }
-
-                    if (_valid) {
-                        _.commit();
-                        return _value;
-                    }
-                } while (false);
-
-                if (maybe([&] { return parse_string(); }, [&](auto&& val) { _value = val; })) return _value;
-
-                _.revert();
+            result<basic_json> parse_value() {
+                if (auto _value = parse_object()) return _value;
+                if (auto _value = parse_array()) return _value;
+                if (auto _value = parse_value_ambiguous()) return _value;
+                if (auto _value = parse_string()) return _value;
                 return die("Expected value");
             }
 
@@ -1108,42 +946,30 @@ namespace kaixo {
 
         // ------------------------------------------------
         
-        static parser::result<basic_json> parse(std::string_view json) {
-            parser _parser{
-                .original = json,
-                .value = json
-            };
-            auto result = _parser.parse_object();
-            if (result.valid()) {
-                return { std::move(result.value()) };
-            } else {
-                return result.what();
-            }
-        }
+        static parser::result<basic_json> parse(std::string_view json) { return parser{ json }.parse_object(); }
 
         // ------------------------------------------------
         
     private:
-        constexpr static std::string_view trim(std::string_view view, std::string_view t = " \t\n\r\f\v") {
-            if (auto i = view.find_first_not_of(t); i != std::string_view::npos) view = view.substr(i);
-            if (auto i = view.find_last_not_of(t); i != std::string_view::npos) view = view.substr(0, i + 1);
-            return view;
-        }
-
-        constexpr static std::string_view trim_begin(std::string_view view, std::string_view t = " \t\n\r\f\v") {
-            if (auto i = view.find_first_not_of(t); i != std::string_view::npos) view = view.substr(i);
-            return view;
+        constexpr static std::string escape(std::string_view str) {
+            std::string _str{ str };
+            string_replace(_str, "\\", "\\\\");
+            string_replace(_str, "\b", "\\b");
+            string_replace(_str, "\f", "\\f");
+            string_replace(_str, "\n", "\\n");
+            string_replace(_str, "\r", "\\r");
+            string_replace(_str, "\t", "\\t");
+            string_replace(_str, "\"", "\\\"");
+            string_replace(_str, "\'", "\\'");
+            string_replace(_str, "/", "\\/");
+            return _str;
         }
 
         constexpr static bool one_of(char c, std::string_view cs) { return cs.find(c) != std::string_view::npos; }
 
         constexpr static void string_replace(std::string& str, std::string_view from, std::string_view to) {
-            if (from.empty()) return;
-            size_t start_pos = 0;
-            while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
+            for (std::size_t start_pos = 0; (start_pos = str.find(from, start_pos)) != std::string::npos; start_pos += to.length())
                 str.replace(start_pos, from.length(), to);
-                start_pos += to.length(); // In case 'to' contains 'from', like replacing 'x' with 'yx'
-            }
         }
 
         // ------------------------------------------------
@@ -1152,11 +978,10 @@ namespace kaixo {
 
     // ------------------------------------------------
     
-    std::ostream& operator<<(std::ostream& stream, const basic_json& object) {
-        stream << object.to_string();
-        return stream;
-    }
+    std::ostream& operator<<(std::ostream& stream, const basic_json& object) { return stream << object.to_string(); }
 
     // ------------------------------------------------
     
 }
+
+// ------------------------------------------------

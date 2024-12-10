@@ -168,7 +168,7 @@ namespace kaixo::test {
         auto& [string, expected] = GetParam();
         basic_json::parser parser{ string };
         auto number = parser.parse_number();
-        ASSERT_TRUE(number.has_value());
+        ASSERT_TRUE(number.has_value()) << number.error();
         double result = basic_json{ number.value() }.as<double>();
         ASSERT_EQ(result, expected);
     }
@@ -228,7 +228,7 @@ namespace kaixo::test {
         auto& [string, expected] = GetParam();
         basic_json::parser parser{ string };
         auto member = parser.parse_member();
-        ASSERT_TRUE(member.has_value());
+        ASSERT_TRUE(member.has_value()) << member.error();
         auto& result = member.value();
         auto& key = result.first;
         auto& value = result.second;
@@ -262,7 +262,7 @@ namespace kaixo::test {
     TEST_P(ParseJsonObjectTests, ParseObject) {
         auto& [string, expected] = GetParam();
         auto object = basic_json::parse(string);
-        ASSERT_TRUE(object.has_value());
+        ASSERT_TRUE(object.has_value()) << object.error();
         ASSERT_EQ(object.value(), expected);
     }
 
@@ -288,6 +288,9 @@ namespace kaixo::test {
                '''
             m: a: []
             n: " {} "
+            o: '"\'',
+            p: "\"'",
+            q: "\/\\\b\f\n\r\t",
         })~~", basic_json{
             { "a", "v" },
             { "b", "v v" },
@@ -304,6 +307,9 @@ namespace kaixo::test {
             { "l", "a\n b\n  c" },
             { "m", "a: []" },
             { "n", " {} " },
+            { "o", "\"'" },
+            { "p", "\"'" },
+            { "q", "\/\\\b\f\n\r\t" },
         })
     ));
 
