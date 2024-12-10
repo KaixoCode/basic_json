@@ -2,22 +2,19 @@
 
 // ------------------------------------------------
 
-#include <string_view>
-#include <vector>
-#include <charconv>
-#include <map>
-#include <variant>
-#include <optional>
-#include <string>
-#include <array>
-#include <stack>
-#include <list>
-#include <tuple>
-#include <utility>
-#include <type_traits>
-#include <iostream>
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <expected>
+#include <list>
+#include <optional>
+#include <ranges>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+#include <variant>
+#include <vector>
 
 // ------------------------------------------------
 
@@ -25,19 +22,13 @@ namespace kaixo {
 
     // ------------------------------------------------
     
-    namespace detail {
+    class basic_json {
 
         // ------------------------------------------------
 
         // Simple map implementation that keeps the insertion order. 
         // Uses an underlying list, meaning lookup is O(n).
-        template<class Value>
-        class ordered_flat_string_map : public std::list<std::pair<std::string, Value>> {
-        public:
-
-            // ------------------------------------------------
-            
-            using std::list<std::pair<std::string, Value>>::list;
+        struct map : std::list<std::pair<std::string, basic_json>> {
 
             // ------------------------------------------------
 
@@ -49,21 +40,19 @@ namespace kaixo {
 
             // ------------------------------------------------
 
-            Value& get_or_insert(std::string_view value) {
+            basic_json& get_or_insert(std::string_view value) {
                 auto it = find(value);
                 if (it != this->end()) return it->second;
-                return this->emplace_back(std::string{ value }, Value{}).second;
+                return this->emplace_back(std::string{ value }, basic_json{}).second;
             }
-            
+
             // ------------------------------------------------
 
-            auto put(std::pair<std::string, Value> value, auto where) {
+            auto put(std::pair<std::string, basic_json> value, auto where) {
                 remove(value.first); // remove any old value associated with key
                 return ++this->insert(where, value);
             }
 
-            // ------------------------------------------------
-            
             auto remove(std::string_view value) {
                 return std::remove_if(this->begin(), this->end(), [&](auto& val) { return val.first == value; });
             }
@@ -74,15 +63,7 @@ namespace kaixo {
 
         // ------------------------------------------------
 
-    }
-
-    // ------------------------------------------------
-    
-    class basic_json {
     public:
-
-        // ------------------------------------------------
-
         enum type_index { number = 0, string, boolean, array, object, null, undefined };
         
         // ------------------------------------------------
@@ -91,7 +72,7 @@ namespace kaixo {
         using string_t = std::string;
         using boolean_t = bool;
         using array_t = std::vector<basic_json>;
-        using object_t = detail::ordered_flat_string_map<basic_json>;
+        using object_t = map;
         using null_t = std::nullptr_t;
 
         // ------------------------------------------------
@@ -137,17 +118,16 @@ namespace kaixo {
 
     public:
         basic_json() = default;
-
         basic_json(null_t) : _value(null_t{}) {}
         basic_json(boolean_t value) : _value(value)  {}
-
         basic_json(number_t&& value) : _value(std::move(value)) {}
         basic_json(object_t&& value) : _value(std::move(value)) {}
         basic_json(array_t&& value)  : _value(std::move(value)) {}
         basic_json(const number_t& value) : _value(value) {}
         basic_json(const object_t& value) : _value(value) {}
         basic_json(const array_t& value)  : _value(value) {}
-        
+        basic_json(std::initializer_list<object_t::value_type> values) : _value(object_t{ values }) {}
+
         template<class Ty> requires std::constructible_from<string_t, Ty&&>
         basic_json(Ty&& value)
             : _value(string_t{ std::forward<Ty>(value) }) 
@@ -158,27 +138,18 @@ namespace kaixo {
             : _value(number_t{ static_cast<typename number_type<Ty>::type>(value) })
         {}
         
-        basic_json(std::initializer_list<object_t::value_type> values)
-            : _value(object_t{ values })
-        {}
-        
         // ------------------------------------------------
         
         bool operator==(const basic_json& other) const { 
             if (type() != other.type()) return false;
             if (!is<number_t>()) return _value == other._value;
-            return std::visit([&](auto a) {
-                return std::visit([&](auto b) {
-                    return a == b; 
-                }, std::get<number_t>(other._value));     
-            }, std::get<number_t>(_value));
+            return std::visit([&](auto a, auto b) { return a == b; }, 
+                std::get<number_t>(_value), std::get<number_t>(other._value));
         }
 
         // ------------------------------------------------
 
-        type_index type() const { 
-            return static_cast<type_index>(_value.index());
-        }
+        type_index type() const { return static_cast<type_index>(_value.index()); }
 
         template<class Ty = void>
         bool is(type_index t = undefined) const {
@@ -273,7 +244,7 @@ namespace kaixo {
         }
 
         template<class Self>
-        basic_json& at(this Self& self, std::size_t index) {
+        auto& at(this Self& self, std::size_t index) {
             auto& arr = self.template as<array_t>();
             if (arr.size() <= index) throw std::exception("Out of bounds");
             return arr[index];
@@ -283,19 +254,16 @@ namespace kaixo {
         
         template<class Ty>
         std::optional<Ty> get() const {
-            if (is<Ty>()) return as<Ty>();
-            else return {};
+            return is<Ty>() ? std::optional{ as<Ty>() } : std::nullopt;
         }
         
         std::optional<basic_json> get(std::string_view key) const {
-            if (contains(key)) return at(key);
-            else return {};
+            return contains(key) ? std::optional{ at(key) } : std::nullopt;
         }
 
         template<class Ty>
         std::optional<Ty> get(std::string_view key) const {
-            if (contains<Ty>(key)) return get(key)->template as<Ty>();
-            else return {};
+            return contains(key) ? get(key)->get<Ty>() : std::nullopt;
         }
 
         // ------------------------------------------------
@@ -715,6 +683,8 @@ namespace kaixo {
                         else return _.revert("Wrong escape character");
                     }
                 }
+
+                return _.revert("Expected \" or ' to end json string");
             }
 
             result<string_t> parse_quoteless_string() {
@@ -757,6 +727,8 @@ namespace kaixo {
                         else if (consume("\n")) break;      // End of line
                     }
                 }
+
+                return _.revert("Expected ''' to end multi-line string");
             }
 
             result<string_t> parse_string() {
