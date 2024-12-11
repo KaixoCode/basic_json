@@ -30,13 +30,13 @@ file(GLOB_RECURSE BASIC_JSON_TESTS_SOURCE
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${BASIC_JSON_TESTS_SOURCE})
 
-add_executable(BasicJsonTests ${BASIC_JSON_TESTS_SOURCE})
-add_dependencies(BasicJsonTests gtest)
-target_include_directories(BasicJsonTests
+add_executable(basic_json_tests ${BASIC_JSON_TESTS_SOURCE})
+add_dependencies(basic_json_tests gtest)
+target_include_directories(basic_json_tests
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(BasicJsonTests GTest::GTest)
+target_link_libraries(basic_json_tests GTest::GTest)
 
-add_test(BasicJsonTests_gtests BasicJsonTests)
+add_test(basic_json_tests_gtests basic_json_tests)
 
 # ==============================================
