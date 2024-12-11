@@ -333,23 +333,24 @@ namespace kaixo {
         
         // ------------------------------------------------
         
-        template<class Functor, class Self >
+        template<class Functor, class Self>
+            requires (std::invocable<Functor&, const std::string&, Self&>
+                    || std::invocable<Functor&, Self&>)
         bool foreach(this Self& self, Functor&& fun) {
-            using json_type = std::conditional_t<std::is_const_v<Self>, const basic_json&, basic_json&>;
-            if constexpr (std::invocable<Functor, const std::string&, json_type>) {
+            if constexpr (std::invocable<Functor&, const std::string&, Self&>) {
                 if (!self.template is<object_t>()) return false;
                 for (auto& [key, val] : self.template as<object_t>()) fun(key, val);
                 return true;
-            } else if constexpr (std::invocable<Functor, json_type>) {
+            } else if constexpr (std::invocable<Functor&, Self&>) {
                 if (!self.template is<array_t>()) return false;
                 for (auto& val : self.template as<array_t>()) fun(val);
                 return true;
-            } else {
-                static_assert(std::same_as<Functor, int>, "Wrong functor");
             }
         }
 
         template<class Functor, class Self>
+            requires (std::invocable<Functor&, const std::string&, Self&>
+                   || std::invocable<Functor&, Self&>)
         bool foreach(this Self& self, std::string_view key, Functor&& fun) {
             if (self.contains(key)) return self.at(key).foreach(fun);
             return false;
@@ -398,6 +399,17 @@ namespace kaixo {
             auto& arr = _get_or_assign<array_t>();
             return *arr.emplace(arr.begin(), std::forward<Ty>(val));
         }
+
+        // ------------------------------------------------
+
+        template<class ...Args> requires std::constructible_from<basic_json, Args&&...>
+        basic_json& put(std::string_view value, Args&& ...args) {
+            return operator[](value) = basic_json{ std::forward<Args>(args)... };
+        }
+
+        // ------------------------------------------------
+
+        void remove(std::string_view index) { _get_or_assign<object_t>().remove(index); }
 
         // ------------------------------------------------
 
