@@ -137,6 +137,11 @@ namespace kaixo {
         basic_json(Ty value)
             : _value(number_t{ static_cast<typename number_type<Ty>::type>(value) })
         {}
+
+        template<class Ty> requires std::constructible_from<basic_json, const Ty&>
+        basic_json(const std::vector<Ty>& values)
+            : _value(array_t{ values.begin(), values.end() })
+        {}
         
         // ------------------------------------------------
         
@@ -324,10 +329,24 @@ namespace kaixo {
             return false;
         }
         
+        template<class Ty>
+        bool try_get_or_default(Ty& val, Ty&& def) const {
+            if (try_get(val)) return true;
+            val = std::forward<Ty>(def);
+            return false;
+        }
+        
         template<class Ty, class B>
         bool try_get_or_default(std::string_view key, Ty& val, B&& def) const {
             if (try_get(key, val)) return true;
             val = std::forward<B>(def);
+            return false;
+        }
+        
+        template<class Ty>
+        bool try_get_or_default(std::string_view key, Ty& val, Ty&& def) const {
+            if (try_get(key, val)) return true;
+            val = std::forward<Ty>(def);
             return false;
         }
         
