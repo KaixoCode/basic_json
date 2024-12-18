@@ -54,7 +54,9 @@ namespace kaixo {
             }
 
             auto remove(std::string_view value) {
-                return std::remove_if(this->begin(), this->end(), [&](auto& val) { return val.first == value; });
+                auto res = std::find_if(this->begin(), this->end(), [&](auto& val) { return val.first == value; });
+                if (res == this->end()) return res;
+                return this->erase(res);
             }
 
             // ------------------------------------------------
