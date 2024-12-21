@@ -392,7 +392,7 @@ namespace kaixo {
         
         void merge(const basic_json& other) {
             switch (type()) {
-            case object: merge(other, as<object_t>().end()); break;
+            case object: merge(other, as<object_t>().begin()); break;
             case null: *this = other; break;
             default: return; // Can't merge other types
             }
