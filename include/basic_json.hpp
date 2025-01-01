@@ -498,8 +498,53 @@ namespace kaixo {
             constexpr static std::string_view whitespace_no_lf = " \t\r\f\v";
 
             // ------------------------------------------------
+            
+            struct error_message {
 
-            template<class Ty = void> using result = std::expected<Ty, std::string>;
+                // ------------------------------------------------
+
+                std::string_view message;
+
+                // ------------------------------------------------
+
+                template<std::size_t N> // Consteval enforces error message to be string literal
+                consteval error_message(const char(&msg)[N])
+                    : message(msg)
+                {}
+
+                // ------------------------------------------------
+
+            };
+
+            struct error_result {
+
+                // ------------------------------------------------
+
+                std::string_view parsed_until;
+                error_message message;
+
+                // ------------------------------------------------
+
+                std::string what() const {
+                    std::size_t newlines = 0;
+                    std::size_t charsInLine = 0;
+                    for (auto& c : parsed_until) {
+                        ++charsInLine;
+                        if (c == '\n') ++newlines, charsInLine = 0;
+                    }
+
+                    return std::format("line {}, character {}: {}", newlines, charsInLine, message.message);
+                }
+
+                operator std::string() const { return what(); }
+
+                // ------------------------------------------------
+
+            };
+
+            // ------------------------------------------------
+
+            template<class Ty = void> using result = std::expected<Ty, error_result>;
 
             // ------------------------------------------------
 
@@ -521,17 +566,10 @@ namespace kaixo {
 
                 // ------------------------------------------------
 
-                std::unexpected<std::string> revert(std::string_view message) {
+                std::unexpected<error_result> revert(error_message message) {
                     std::string_view parsed = self->original.substr(0, self->original.size() - self->value.size());
-                    std::size_t newlines = 0;
-                    std::size_t charsInLine = 0;
-                    for (auto& c : parsed) {
-                        ++charsInLine;
-                        if (c == '\n') ++newlines, charsInLine = 0;
-                    }
-                    
                     revert();
-                    return std::unexpected{ std::format("line {}, character {}: {}", newlines, charsInLine, message) };
+                    return std::unexpected{ error_result{ parsed, message } };
                 }
 
                 // ------------------------------------------------
@@ -541,7 +579,7 @@ namespace kaixo {
             // ------------------------------------------------
 
             backup_struct backup() { return backup_struct{ this, value }; }
-            std::unexpected<std::string> fail(std::string_view message) { return backup().revert(message); }
+            std::unexpected<error_result> fail(error_message message) { return backup().revert(message); }
 
             // ------------------------------------------------
 
@@ -889,7 +927,7 @@ namespace kaixo {
 
     // ------------------------------------------------
     
-    std::ostream& operator<<(std::ostream& stream, const basic_json& object) { return stream << object.to_string(); }
+    inline std::ostream& operator<<(std::ostream& stream, const basic_json& object) { return stream << object.to_string(); }
 
     // ------------------------------------------------
     
