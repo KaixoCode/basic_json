@@ -516,6 +516,16 @@ namespace kaixo {
 
             };
 
+            struct error {
+                std::size_t line = 0;
+                std::size_t character = 0;
+                error_message message;
+
+                std::string what() const {
+                    return std::format("line {}, character {}: {}", line, character, message.message);
+                }
+            };
+
             struct error_result {
 
                 // ------------------------------------------------
@@ -525,18 +535,20 @@ namespace kaixo {
 
                 // ------------------------------------------------
 
-                std::string what() const {
-                    std::size_t newlines = 0;
-                    std::size_t charsInLine = 0;
+                operator error() const {
+                    std::size_t newlines = 1;
+                    std::size_t charsInLine = 1;
                     for (auto& c : parsed_until) {
                         ++charsInLine;
-                        if (c == '\n') ++newlines, charsInLine = 0;
+                        if (c == '\n') ++newlines, charsInLine = 1;
                     }
 
-                    return std::format("line {}, character {}: {}", newlines, charsInLine, message.message);
+                    return {
+                        .line = newlines,
+                        .character = charsInLine,
+                        .message = message,
+                    };
                 }
-
-                operator std::string() const { return what(); }
 
                 // ------------------------------------------------
 
@@ -544,7 +556,134 @@ namespace kaixo {
 
             // ------------------------------------------------
 
-            template<class Ty = void> using result = std::expected<Ty, error_result>;
+            template<class Ty = void> struct parse_result;
+            template<class Ty = void> 
+            struct result {
+                std::vector<error> _errors;
+                std::optional<Ty> _value;
+
+                result(error_message msg)
+                    : _errors{ error{.message = msg } }
+                {}
+                
+                result(Ty&& result)
+                    : _value(std::move(result))
+                {}
+
+                template<std::constructible_from<Ty> T>
+                result(T&& result)
+                    : _value(std::move(result))
+                {}
+
+                template<std::constructible_from<Ty> T>
+                result(parse_result<T>&& result)
+                    : _errors(result._errors.begin(), result._errors.end())
+                    , _value(std::move(result._value))
+                {}
+                
+                result(parse_result<void>&& result)
+                    : _errors(result._errors.begin(), result._errors.end())
+                {}
+
+                const std::vector<error>& errors() const { return _errors; }
+                explicit operator bool() const { return _value.has_value(); }
+                bool has_value() const { return _value.has_value(); }
+                Ty& value() { return _value.value(); }
+
+                Ty* operator->() { return &_value.value(); }
+            };
+
+            // ------------------------------------------------
+            
+            enum class parse_result_state {
+                success,     // Parsed successfully 
+                recoverable, // Failed to parse, but continue
+                fatal,       // Fatal parse error, non-recoverable
+            };
+
+            template<class Ty = void>
+            struct parse_result {
+                std::vector<error_result> _errors;
+                std::optional<Ty> _value;
+                parse_result_state _state;
+
+                parse_result(Ty&& result)
+                    : _value(std::move(result))
+                    , _state(parse_result_state::success)
+                {}
+                
+                template<class T> requires std::constructible_from<Ty, T>
+                parse_result(parse_result<T>&& result)
+                    : _errors(std::move(result._errors))
+                    , _value(result.has_value() ? std::optional{ Ty{ std::move(result._value.value()) } } : std::nullopt)
+                    , _state(std::move(result._state))
+                {}
+                
+                parse_result(parse_result<void>&& result)
+                    : _errors(std::move(result._errors))
+                    , _state(std::move(result._state))
+                {}
+
+                bool has_value() const { return _value.has_value(); }
+                Ty& value() { return _value.value(); }
+
+                template<class T, class Self>
+                Self&& merge_errors(this Self&& self, parse_result<T>&& other) {
+                    self._errors.append_range(std::move(other._errors));
+                    return std::forward<Self>(self);
+                }
+                
+                template<class T, class Self>
+                Self&& merge_errors(this Self&& self, const parse_result<T>& other) {
+                    self._errors.append_range(other._errors);
+                    return std::forward<Self>(self);
+                }
+
+                bool fatal() const { return _state == parse_result_state::fatal; }
+                bool recoverable() const { return _state == parse_result_state::recoverable; }
+                bool success() const { return _state == parse_result_state::success; }
+
+                // When true, it should return, when false it should continue with the next
+                // potential path. If this returns true, it either succeeded, or was fatal
+                // and it must stop parsing.
+                explicit operator bool() const {
+                    return _state == parse_result_state::success
+                        || _state == parse_result_state::fatal;
+                }
+            };
+            
+            template<>
+            struct parse_result<void> {
+                std::vector<error_result> _errors;
+                parse_result_state _state;
+                
+                template<class T, class Self>
+                Self&& merge_errors(this Self&& self, parse_result<T>&& other) {
+                    self._errors.append_range(std::move(other._errors));
+                    return std::forward<Self>(self);
+                }
+                
+                template<class T, class Self>
+                Self&& merge_errors(this Self&& self, const parse_result<T>& other) {
+                    self._errors.append_range(other._errors);
+                    return std::forward<Self>(self);
+                }
+
+                bool has_value() const { return false; }
+                void value() const { return; }
+
+                bool fatal() const { return _state == parse_result_state::fatal; }
+                bool recoverable() const { return _state == parse_result_state::recoverable; }
+                bool success() const { return _state == parse_result_state::success; }
+
+                // When true, it should return, when false it should continue with the next
+                // potential path. If this returns true, it either succeeded, or was fatal
+                // and it must stop parsing.
+                explicit operator bool() const {
+                    return _state == parse_result_state::success
+                        || _state == parse_result_state::fatal;
+                }
+            };
 
             // ------------------------------------------------
 
@@ -562,14 +701,56 @@ namespace kaixo {
 
                 // ------------------------------------------------
 
-                void revert() { self->value = backup; }
+                void do_revert() { self->value = backup; }
 
                 // ------------------------------------------------
 
-                std::unexpected<error_result> revert(error_message message) {
+                parse_result<> revert_as_success() {
+                    do_revert();
+                    return { 
+                        ._state = parse_result_state::success,
+                    };
+                }
+                
+                parse_result<> warning(error_message message) {
                     std::string_view parsed = self->original.substr(0, self->original.size() - self->value.size());
-                    revert();
-                    return std::unexpected{ error_result{ parsed, message } };
+                    do_revert();
+                    return { 
+                        ._errors = { error_result{ parsed, message } },
+                        ._state = parse_result_state::success,
+                    };
+                }
+                
+                parse_result<> revert(error_message message) {
+                    std::string_view parsed = self->original.substr(0, self->original.size() - self->value.size());
+                    do_revert();
+                    return { 
+                        ._errors = { error_result{ parsed, message } },
+                        ._state = parse_result_state::recoverable,
+                    };
+                }
+                
+                parse_result<> fail(error_message message) {
+                    std::string_view parsed = self->original.substr(0, self->original.size() - self->value.size());
+                    do_revert();
+                    return { 
+                        ._errors = { error_result{ parsed, message } },
+                        ._state = parse_result_state::fatal,
+                    };
+                }
+                
+                parse_result<> revert() {
+                    do_revert();
+                    return { 
+                        ._state = parse_result_state::recoverable,
+                    };
+                }
+                
+                parse_result<> fail() {
+                    do_revert();
+                    return { 
+                        ._state = parse_result_state::fatal,
+                    };
                 }
 
                 // ------------------------------------------------
@@ -579,7 +760,12 @@ namespace kaixo {
             // ------------------------------------------------
 
             backup_struct backup() { return backup_struct{ this, value }; }
-            std::unexpected<error_result> fail(error_message message) { return backup().revert(message); }
+            parse_result<> success() { return backup().revert_as_success(); }
+            parse_result<> revert(error_message message) { return backup().revert(message); }
+            parse_result<> revert() { return backup().revert(); }
+            parse_result<> fail(error_message message) { return backup().fail(message); }
+            parse_result<> fail() { return backup().fail(); }
+            parse_result<> warning(error_message message) { return backup().warning(message); }
 
             // ------------------------------------------------
 
@@ -619,15 +805,17 @@ namespace kaixo {
 
             void ignore(std::string_view anyOf = whitespace) { consume_while(anyOf); }
 
-            void removeIgnored(bool newline = true) {
-                parse_comment(newline);
+            parse_result<> removeIgnored(bool newline = true) {
+                auto _result = parse_comment(newline);
+                if (_result.fatal()) return fail().merge_errors(_result);
                 ignore(newline ? whitespace : whitespace_no_lf);
+                return revert(); // Revert just means it should continue (no success, but also no fatal, just neutral; continue)
             }
 
             // ------------------------------------------------
 
             template<class Lambda, class Assign>
-            bool maybe(Lambda&& fun, Assign&& assign) {
+            auto maybe(Lambda&& fun, Assign&& assign) {
                 auto result = fun();
                 if (result.has_value()) {
                     if constexpr (std::invocable<Assign, decltype(std::move(result.value()))>) {
@@ -636,43 +824,64 @@ namespace kaixo {
                         assign = std::move(result.value());
                     }
                 }
-                return result.has_value();
+                return result;
             }
 
             // ------------------------------------------------
 
             template<class Lambda, class Assign>
-            void parse_list(Lambda&& fun, Assign&& assign) {
-                if (!maybe(fun, assign)) return;
+            auto parse_list(Lambda&& fun, Assign&& assign) {
+                auto _result = maybe(fun, assign);
+                if (_result.fatal()) return _result;
+
                 while (true) {
                     { // First try comma
                         auto _ = backup(); 
-                        removeIgnored();
+                        if (auto _ignored = removeIgnored()) {
+                            return std::move(_result).merge_errors(_ignored);
+                        }
+
                         if (consume(",")) {
-                            if (!maybe(fun, assign)) return;
-                            continue;
+                            auto _next = maybe(fun, assign);
+                            if (_next.fatal()) return std::move(_next).merge_errors(_result);
+                            if (_next.success()) {
+                                _result.merge_errors(_next);
+                                continue;
+                            }
+
+                            return _result; // Do not add last error, as this just means we're done parsing the list
                         }
                         _.revert();
                     }
                     { // Otherwise try LF
                         auto _ = backup();
-                        removeIgnored(false);
+                        if (auto _ignored = removeIgnored(false)) {
+                            return std::move(_result).merge_errors(_ignored);
+                        }
+
                         if (consume("\n")) {
-                            if (!maybe(fun, assign)) return;
-                            continue;
+                            auto _next = maybe(fun, assign);
+                            if (_next.fatal()) return std::move(_next).merge_errors(_result);
+                            if (_next.success()) {
+                                _result.merge_errors(_next);
+                                continue;
+                            }
+
+                            return _result;  // Do not add last error, as this just means we're done parsing the list
                         }
                         _.revert();
                     }
-                    return;
+                    return _result;
                 }
             }
 
             // ------------------------------------------------
 
-            result<int> parse_comment(bool newline = true) {
+            parse_result<int> parse_comment(bool newline = true) {
                 for (int nofCommentsParsed = 0;; ++nofCommentsParsed) {
                     auto _ = backup();
 
+                    auto _startedHere = backup().fail("Started here");
                     ignore(newline ? whitespace : whitespace_no_lf);
                     if (consume("#")) consume_while_not("\n");
                     else if (consume("//")) consume_while_not("\n");
@@ -682,9 +891,9 @@ namespace kaixo {
                             consume_while_not("*");
                             if (consume("*") && consume("/")) { closed = true; break; }
                         }
-                        if (!closed) return _.revert("Expected end of multi-line comment");
+                        if (!closed) return _.fail("Expected end of multi-line comment").merge_errors(_startedHere);
                     } else {
-                        if (nofCommentsParsed == 0) return _.revert("No comments parsed"); // No more comments
+                        if (nofCommentsParsed == 0) return _.revert(); // No more comments
                         else return nofCommentsParsed;
                     }
                 }
@@ -692,9 +901,11 @@ namespace kaixo {
 
             // ------------------------------------------------
 
-            result<number_t> parse_number() {
+            parse_result<number_t> parse_number() {
                 auto _ = backup();
-                removeIgnored();
+
+                if (auto _ignored = removeIgnored()) return _ignored;
+
                 std::string exponent = "", pre = "", post = "";
                 bool negative = consume("-"), hasExponent = false, negativeExponent = false, fractional = false;
 
@@ -704,14 +915,14 @@ namespace kaixo {
 
                 if (fractional = consume(".")) {
                     while (auto c = consume_one_of("0123456789")) post += c.value();
-                    if (post.empty()) return _.revert("Expected at least 1 decimal digit");
+                    if (post.empty()) return _.fail("Expected at least 1 decimal digit");
                 }
 
                 if (hasExponent = static_cast<bool>(consume_one_of("eE"))) {
                     if (consume("+")) negativeExponent = false;
                     else if (consume("-")) negativeExponent = true;
                     while (auto c = consume_one_of("0123456789")) exponent += c.value();
-                    if (exponent.empty()) return _.revert("Expected at least 1 exponent digit");
+                    if (exponent.empty()) return _.fail("Expected at least 1 exponent digit");
                 }
 
                 std::string fullStr = (fractional ? pre + "." + post : pre)
@@ -729,38 +940,39 @@ namespace kaixo {
 
             // ------------------------------------------------
 
-            result<string_t> parse_json_string() {
+            parse_result<string_t> parse_json_string() {
                 auto _ = backup();
-                string_t _result{};
+                parse_result<string_t> _result = string_t{};
 
-                removeIgnored();
+                if (auto _ignored = removeIgnored()) return _ignored;
+
                 auto v = consume_one_of("\"'");
                 if (!v) return _.revert("Expected \" or ' to start json string");
                 bool smallQuote = v == '\'';
                 while (!value.empty()) {
-                    _result += consume_while_not(smallQuote ? "'\\" : "\"\\");
+                    _result.value() += consume_while_not(smallQuote ? "'\\" : "\"\\");
                     if (consume(smallQuote ? "\'" : "\"")) return _result; // String ended
                     if (consume("\\")) { // Escaped character
-                        if (consume("\"")) _result += "\"";
-                        else if (consume("\'")) _result += "\'";
-                        else if (consume("\\")) _result += "\\";
-                        else if (consume("/")) _result += "/";
-                        else if (consume("b")) _result += "\b";
-                        else if (consume("f")) _result += "\f";
-                        else if (consume("n")) _result += "\n";
-                        else if (consume("r")) _result += "\r";
-                        else if (consume("t")) _result += "\t";
-                        else if (consume("u")) return _.revert("Unicode is currently not supported");
-                        else return _.revert("Wrong escape character");
+                        if (consume("\"")) _result.value() += "\"";
+                        else if (consume("\'")) _result.value() += "\'";
+                        else if (consume("\\")) _result.value() += "\\";
+                        else if (consume("/")) _result.value() += "/";
+                        else if (consume("b")) _result.value() += "\b";
+                        else if (consume("f")) _result.value() += "\f";
+                        else if (consume("n")) _result.value() += "\n";
+                        else if (consume("r")) _result.value() += "\r";
+                        else if (consume("t")) _result.value() += "\t";
+                        else if (consume("u")) _result.merge_errors(warning("Unicode is currently not supported"));
+                        else return _result.merge_errors(warning("Wrong escape character"));
                     }
                 }
 
-                return _.revert("Expected \" or ' to end json string");
+                return _.fail("Expected \" or ' to end json string");
             }
 
-            result<string_t> parse_quoteless_string() {
+            parse_result<string_t> parse_quoteless_string() {
                 auto _ = backup();
-                removeIgnored();
+                if (auto _ignored = removeIgnored()) return _ignored;
                 
                 if (consume_one_of("[]{},:")) return _.revert("Quoteless string cannot start with any of \"[]{},:\"");
                 auto _result = consume_while_not("\n");
@@ -768,12 +980,18 @@ namespace kaixo {
                 return string_t{ _result }; // ^^^ Remove whitespace from end
             }
             
-            result<string_t> parse_multiline_string() {
+            parse_result<string_t> parse_multiline_string() {
                 auto _ = backup();
-                removeIgnored();
+                if (auto _ignored = removeIgnored()) return _ignored;
                 string_t _result = "";
 
-                std::int64_t _columnsBeforeStart = nof_characters_since_last('\n');
+                std::size_t _columnsBeforeStart = nof_characters_since_last('\n');
+                if (_columnsBeforeStart == std::string_view::npos) {
+                    // If no previous newline, it means we're on the first line, so just count nof parsed characters
+                    _columnsBeforeStart = original.size() - value.size();
+                }
+                
+                auto _startedHere = backup().fail("Started here");
                 if (!consume("'''")) return _.revert("Expected ''' to start multi-line string");
                 ignore(whitespace_no_lf);
                 bool startsOnNewLine = consume("\n");
@@ -784,8 +1002,12 @@ namespace kaixo {
                     if (consume("'''")) return _result; // End of string
 
                     std::size_t index = nof_characters_since_last('\n');
-                    if (index == std::string_view::npos) return _.revert("Unexpected error");
-                    std::int64_t spaces = std::max(static_cast<std::int64_t>(index) - _columnsBeforeStart, 0ll);
+                    if (_columnsBeforeStart == std::string_view::npos) {
+                        // If no previous newline, it means we're on the first line, so just count nof parsed characters
+                        _columnsBeforeStart = original.size() - value.size();
+                    }
+
+                    std::int64_t spaces = std::max(static_cast<std::int64_t>(index) - static_cast<std::int64_t>(_columnsBeforeStart), 0ll);
                     if (firstLine && !startsOnNewLine) spaces -= 3; // remove 3 spaces to account for ''' on first line
                     
                     if (!firstLine) _result += '\n';
@@ -795,85 +1017,160 @@ namespace kaixo {
                     while (!value.empty()) {
                         _result += consume_while_not("\n'");
                         if (consume("'''")) return _result; // End of string
+                        else if (consume("'")) _result += "'"; // ' inside string
                         else if (consume("\n")) break;      // End of line
                     }
                 }
 
-                return _.revert("Expected ''' to end multi-line string");
-            }
-
-            result<string_t> parse_string() {
-                if (auto str = parse_multiline_string()) return str;
-                if (auto str = parse_json_string()) return str;
-                if (auto str = parse_quoteless_string()) return str;
-                return fail("Expected string");
+                return _.fail("Expected ''' to end multi-line string")
+                        .merge_errors(_startedHere);
             }
 
             // ------------------------------------------------
 
-            result<std::pair<string_t, basic_json>> parse_member() {
+            parse_result<std::pair<string_t, basic_json>> parse_member() {
                 auto _ = backup();
-                string_t _key{};
-                basic_json _value{};
+                parse_result<std::pair<string_t, basic_json>> _result = std::pair<string_t, basic_json>{};
+                string_t& _key = _result.value().first;
+                basic_json& _value = _result.value().second;
 
-                removeIgnored();
-                if (!maybe([&] { return parse_json_string(); }, _key)) _key = consume_while_not(",:[]{} \t\n\r\f\v");
-                if (_key.empty()) return _.revert("Cannot have empty key");
-                removeIgnored();
-                if (!consume(":")) return _.revert("Expected ':' after key name");
-                if (!maybe([&] { return parse_value(); }, _value)) return _.revert("Expected value");
+                if (auto _ignored = removeIgnored()) return _ignored;
 
-                return { { _key, _value } };
-            }
+                auto _keyResult = parse_json_string();
+                if (_keyResult.fatal()) return _.fail().merge_errors(_keyResult);
 
-            // ------------------------------------------------
+                if (_keyResult.has_value()) {
+                    _result.merge_errors(_keyResult);
+                    _key = std::move(_keyResult.value()); 
+                } else {
+                    _key = consume_while_not(",:[]{} \t\n\r\f\v");
+                }
 
-            result<object_t> parse_object() {
-                auto _ = backup();
-                object_t _result{};
+                if (_key.empty()) {
+                    return _.revert("Cannot have empty key")
+                            .merge_errors(_result);
+                }
 
-                removeIgnored();
-                if (!consume("{")) return _.revert("Expected '{' to begin Object");
-                parse_list([&] { return parse_member(); }, [&](auto&& val) { _result.put(std::move(val), _result.end()); });
-                removeIgnored();
-                if (!consume("}")) return _.revert("Expected '}' to close Object");
+                if (auto _ignored = removeIgnored()) {
+                    return std::move(_ignored).merge_errors(_result);
+                }
+
+                if (!consume(":")) {
+                    return _.fail("Expected ':' after key")
+                            .merge_errors(_result);
+                }
+
+                auto _valueResult = parse_value();
+                _result.merge_errors(_valueResult);
+                if (_valueResult.has_value()) {
+                    _value = std::move(_valueResult.value());
+                } else if (_valueResult.fatal()) {
+                    return _.fail()
+                            .merge_errors(_result);
+                }
 
                 return _result;
             }
 
             // ------------------------------------------------
 
-            result<array_t> parse_array() {
+            parse_result<object_t> parse_object(bool rootValue) {
                 auto _ = backup();
-                array_t _result{};
+                parse_result<object_t> _result = object_t{};
+
+                if (auto _ignored = removeIgnored()) return _ignored;
+
+                bool startedWithBrace = true;
+                if (!consume("{")) {
+                    if (rootValue) {
+                        startedWithBrace = false;
+                    } else {
+                        return _.revert("Expected '{' to begin Object");
+                    }
+                }
                 
-                removeIgnored();
-                if (!consume("[")) return _.revert("Expected '[' to begin Array");
-                parse_list([&] { return parse_value(); }, [&](auto&& val) { _result.push_back(std::move(val)); });
-                removeIgnored();
-                if (!consume("]")) return _.revert("Expected ']' to close Array");
+                auto _list = parse_list(
+                    [&] { return parse_member(); }, 
+                    [&](auto&& val) { _result.value().put(std::move(val), _result.value().end()); }
+                );
+
+                if (_list.fatal()) return _.fail().merge_errors(_list);
+                if (!_result.value().empty()) {
+                    _result.merge_errors(_list);
+                }
+
+                if (auto _ignored = removeIgnored()) {
+                    return std::move(_ignored).merge_errors(_result);
+                }
+
+                if (startedWithBrace && !consume("}")) {
+                    return _.fail("Expected '}' to close Object")
+                            .merge_errors(_result);
+                }
 
                 return _result;
             }
 
             // ------------------------------------------------
 
-            result<basic_json> parse_value_ambiguous() {
+            parse_result<array_t> parse_array(bool rootValue) {
                 auto _ = backup();
-                basic_json _value{};
+                parse_result<array_t> _result = array_t{};
 
-                removeIgnored();
-                if (consume("true")) _value = true;
-                else if (consume("false")) _value = false;
-                else if (consume("null")) _value = nullptr;
-                else if (maybe([&] { return parse_number(); }, _value));
+                if (auto _ignored = removeIgnored()) return _ignored;
+
+                bool startedWithBrace = true;
+                if (!consume("[")) {
+                    if (rootValue) {
+                        startedWithBrace = false;
+                    } else {
+                        return _.revert("Expected '[' to begin Array");
+                    }
+                }
+                
+                auto _list = parse_list(
+                    [&] { return parse_value(false); }, 
+                    [&](auto&& val) { _result.value().push_back(std::move(val)); }
+                );
+
+                if (_list.fatal()) return _.fail().merge_errors(_list);
+                if (!_result.value().empty()) {
+                    _result.merge_errors(_list);
+                }
+
+                if (auto _ignored = removeIgnored()) {
+                    return std::move(_ignored).merge_errors(_result);
+                }
+
+                if (startedWithBrace && !consume("]")) {
+                    return _.fail("Expected ']' to close Array")
+                            .merge_errors(_result);
+                }
+
+                return _result;
+            }
+
+            // ------------------------------------------------
+
+            parse_result<basic_json> parse_value_ambiguous() {
+                auto _ = backup();
+                parse_result<basic_json> _value = basic_json{};
+
+                if (auto _ignored = removeIgnored()) return _ignored;
+
+                if (consume("true")) _value.value() = true;
+                else if (consume("false")) _value.value() = false;
+                else if (consume("null")) _value.value() = nullptr;
+                else if (maybe([&] { return parse_number(); }, _value.value()).has_value());
                 else return _.revert("Not a potentially ambiguous value");
 
                 // Because after a true/false/null/number there could be other characters that
                 // could turn it into a string check whether this really is the parsed type.
                 auto temp = backup(); // backup, because we don't want to actually consume 
                 ignore(whitespace_no_lf);
-                if (parse_comment() || consume_one_of("\n,][}{:")) {
+                auto _comment = parse_comment();
+                if (_comment.fatal()) return _comment;
+                if (_comment.has_value() || consume_one_of("\n,][}{:")) {
                     temp.revert();
                     return _value;
                 }
@@ -881,12 +1178,14 @@ namespace kaixo {
                 return _.revert("Value turned out to be a string");
             }
 
-            result<basic_json> parse_value() {
-                if (auto _value = parse_object()) return _value;
-                if (auto _value = parse_array()) return _value;
-                if (auto _value = parse_value_ambiguous()) return _value;
-                if (auto _value = parse_string()) return _value;
-                return fail("Expected value");
+            parse_result<basic_json> parse_value(bool failWhenNo = true, bool rootValue = false) {
+                if (auto _object = parse_object(rootValue)) return _object;
+                if (auto _array = parse_array(rootValue)) return _array;
+                if (auto _ambig = parse_value_ambiguous()) return _ambig;
+                if (auto _str = parse_multiline_string()) return _str;
+                if (auto _str = parse_json_string()) return _str;
+                if (auto _str = parse_quoteless_string()) return _str;
+                return failWhenNo ? fail("Expected value") : revert();
             }
 
             // ------------------------------------------------
@@ -895,7 +1194,7 @@ namespace kaixo {
 
         // ------------------------------------------------
         
-        static parser::result<basic_json> parse(std::string_view json) { return parser{ json }.parse_value(); }
+        static parser::result<basic_json> parse(std::string_view json) { return parser{ json }.parse_value(true, true); }
 
         // ------------------------------------------------
         
