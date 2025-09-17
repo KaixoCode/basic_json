@@ -150,7 +150,7 @@ namespace kaixo {
         bool operator==(const basic_json& other) const { 
             if (type() != other.type()) return false;
             if (!is<number_t>()) return _value == other._value;
-            return std::visit([&](auto a, auto b) { return a == b; }, 
+            return std::visit([&](auto a, auto b) { return std::cmp_equal(a, b); }, 
                 std::get<number_t>(_value), std::get<number_t>(other._value));
         }
 
@@ -300,7 +300,7 @@ namespace kaixo {
             std::size_t index = 0;
             foreach([&](auto& v) {
                 if (v.template is<Ty>()) {
-                    if (index == N) return false; // too many elements
+                    if (index == N) return; // too many elements
                     result[index++] = v.template as<Ty>();
                 }
             });
@@ -315,7 +315,7 @@ namespace kaixo {
             std::size_t index = 0;
             foreach([&](auto& v) {
                 if (v.template is<Ty>()) {
-                    if (index == N) return false; // too many elements
+                    if (index == N) return; // too many elements
                     result.emplace_back(v.template as<Ty>());
                     ++index;
                 }
@@ -601,7 +601,7 @@ namespace kaixo {
                 fatal,       // Fatal parse error, non-recoverable
             };
 
-            template<class Ty = void>
+            template<class Ty>
             struct parse_result {
                 std::vector<error_result> _errors;
                 std::optional<Ty> _value;
@@ -913,12 +913,12 @@ namespace kaixo {
                 else while (auto c = consume_one_of("0123456789")) pre += c.value();
                 if (pre.empty()) return _.revert("Expected at least 1 digit in number");
 
-                if (fractional = consume(".")) {
+                if ((fractional = consume("."))) {
                     while (auto c = consume_one_of("0123456789")) post += c.value();
                     if (post.empty()) return _.fail("Expected at least 1 decimal digit");
                 }
 
-                if (hasExponent = static_cast<bool>(consume_one_of("eE"))) {
+                if ((hasExponent = static_cast<bool>(consume_one_of("eE")))) {
                     if (consume("+")) negativeExponent = false;
                     else if (consume("-")) negativeExponent = true;
                     while (auto c = consume_one_of("0123456789")) exponent += c.value();
@@ -1032,7 +1032,7 @@ namespace kaixo {
                 auto _ = backup();
                 parse_result<std::pair<string_t, basic_json>> _result = std::pair<string_t, basic_json>{};
                 string_t& _key = _result.value().first;
-                basic_json& _value = _result.value().second;
+                basic_json& _val = _result.value().second;
 
                 if (auto _ignored = removeIgnored()) return _ignored;
 
@@ -1063,7 +1063,7 @@ namespace kaixo {
                 auto _valueResult = parse_value();
                 _result.merge_errors(_valueResult);
                 if (_valueResult.has_value()) {
-                    _value = std::move(_valueResult.value());
+                    _val = std::move(_valueResult.value());
                 } else if (_valueResult.fatal()) {
                     return _.fail()
                             .merge_errors(_result);
@@ -1154,14 +1154,14 @@ namespace kaixo {
 
             parse_result<basic_json> parse_value_ambiguous() {
                 auto _ = backup();
-                parse_result<basic_json> _value = basic_json{};
+                parse_result<basic_json> _result = basic_json{};
 
                 if (auto _ignored = removeIgnored()) return _ignored;
 
-                if (consume("true")) _value.value() = true;
-                else if (consume("false")) _value.value() = false;
-                else if (consume("null")) _value.value() = nullptr;
-                else if (maybe([&] { return parse_number(); }, _value.value()).has_value());
+                if (consume("true")) _result.value() = true;
+                else if (consume("false")) _result.value() = false;
+                else if (consume("null")) _result.value() = nullptr;
+                else if (maybe([&] { return parse_number(); }, _result.value()).has_value());
                 else return _.revert("Not a potentially ambiguous value");
 
                 // Because after a true/false/null/number there could be other characters that
@@ -1172,7 +1172,7 @@ namespace kaixo {
                 if (_comment.fatal()) return _comment;
                 if (_comment.has_value() || consume_one_of("\n,][}{:")) {
                     temp.revert();
-                    return _value;
+                    return _result;
                 }
 
                 return _.revert("Value turned out to be a string");
