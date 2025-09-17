@@ -150,7 +150,10 @@ namespace kaixo {
         bool operator==(const basic_json& other) const { 
             if (type() != other.type()) return false;
             if (!is<number_t>()) return _value == other._value;
-            return std::visit([&](auto a, auto b) { return std::cmp_equal(a, b); }, 
+            return std::visit([&](auto a, auto b) { 
+                using common = std::common_type_t<decltype(a), decltype(b)>;
+                return static_cast<common>(a) == static_cast<common>(b); 
+                }, 
                 std::get<number_t>(_value), std::get<number_t>(other._value));
         }
 
