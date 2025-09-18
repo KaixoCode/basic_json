@@ -654,12 +654,12 @@ namespace kaixo {
                     : _value(std::move(result))
                 {}
 
-                template<std::constructible_from<Ty> T>
+                template<class T> requires (!std::same_as<Ty, void> && std::constructible_from<Ty, T>)
                 result(T&& result)
                     : _value(std::move(result))
                 {}
 
-                template<std::constructible_from<Ty> T>
+                template<class T> requires (!std::same_as<Ty, void> && std::constructible_from<Ty, T>)
                 result(parse_result<T>&& result)
                     : _errors(result._errors.begin(), result._errors.end())
                     , _value(std::move(result._value))
