@@ -696,7 +696,7 @@ namespace kaixo {
                     , _state(parse_result_state::success)
                 {}
                 
-                template<class T> requires std::constructible_from<Ty, T>
+                template<class T> requires (!std::same_as<Ty, void> && std::constructible_from<Ty, T>)
                 parse_result(parse_result<T>&& result)
                     : _errors(std::move(result._errors))
                     , _value(result.has_value() ? std::optional{ Ty{ std::move(result._value.value()) } } : std::nullopt)
