@@ -21,6 +21,62 @@
 namespace kaixo {
 
     // ------------------------------------------------
+
+//#if defined(__clang__) && defined(_LIBCPP_VERSION)
+// libc++ does not yet support floating-point from_chars, but I need it...
+
+    inline std::from_chars_result from_chars(const char* first, const char* last,
+        std::integral auto& value,
+        int base = 10) { return std::from_chars(first, last, value, base); }
+
+    inline std::from_chars_result from_chars(const char* first, const char* last,
+        float& value,
+        std::chars_format fmt = std::chars_format::general) {
+        char* end = nullptr;
+        errno = 0;
+        value = std::strtof(first, &end);
+        if (end == first) {
+            return { last, std::errc::invalid_argument };
+        }
+        if (errno == ERANGE) {
+            return { end, std::errc::result_out_of_range };
+        }
+        return { end, std::errc() };
+    }
+
+    inline std::from_chars_result from_chars(const char* first, const char* last,
+        double& value,
+        std::chars_format fmt = std::chars_format::general) {
+        char* end = nullptr;
+        errno = 0;
+        value = std::strtod(first, &end);
+        if (end == first) {
+            return { last, std::errc::invalid_argument };
+        }
+        if (errno == ERANGE) {
+            return { end, std::errc::result_out_of_range };
+        }
+        return { end, std::errc() };
+    }
+
+    inline std::from_chars_result from_chars(const char* first, const char* last,
+        long double& value,
+        std::chars_format fmt = std::chars_format::general) {
+        char* end = nullptr;
+        errno = 0;
+        value = std::strtold(first, &end);
+        if (end == first) {
+            return { last, std::errc::invalid_argument };
+        }
+        if (errno == ERANGE) {
+            return { end, std::errc::result_out_of_range };
+        }
+        return { end, std::errc() };
+    }
+
+    //#endif
+
+    // ------------------------------------------------
     
     class basic_json {
 
@@ -101,7 +157,7 @@ namespace kaixo {
 
         // ------------------------------------------------
         
-        template<class Ty> requires std::is_arithmetic_v<Ty> struct number_type;
+        template<class Ty> struct number_type;
         template<std::floating_point Ty>    struct number_type<Ty> : std::type_identity<double> {};
         template<std::unsigned_integral Ty> struct number_type<Ty> : std::type_identity<std::uint64_t> {};
         template<std::signed_integral Ty>   struct number_type<Ty> : std::type_identity<std::int64_t> {};
@@ -203,13 +259,13 @@ namespace kaixo {
         template<class Ty>
         Ty& _get_or_assign() {
             if (is<null_t>()) _value = Ty{};
-            else if (!is<Ty>()) throw std::exception("Invalid type.");
+            else if (!is<Ty>()) throw std::runtime_error("Invalid type.");
             return as<Ty>();
         }
 
         template<class Ty>
         const Ty& _get_or_assign() const {
-            if (!is<Ty>()) throw std::exception("Invalid type.");
+            if (!is<Ty>()) throw std::runtime_error("Invalid type.");
             return as<Ty>();
         }
     public:
@@ -222,7 +278,7 @@ namespace kaixo {
             auto _it = obj.find(index);
             if (_it == obj.end()) {
                 if constexpr (std::is_const_v<Self>) {
-                    throw std::exception("Invalid key.");
+                    throw std::runtime_error("Invalid key.");
                 } else {
                     return obj.get_or_insert(index);
                 }
@@ -235,7 +291,7 @@ namespace kaixo {
             auto& arr = self.template _get_or_assign<array_t>();
             if (arr.size() <= index) {
                 if constexpr (std::is_const_v<Self>) {
-                    throw std::exception("Out of bounds");
+                    throw std::runtime_error("Out of bounds");
                 } else {
                     arr.resize(index + 1);
                 }
@@ -249,14 +305,14 @@ namespace kaixo {
         auto& at(this Self& self, std::string_view index) {
             auto& obj = self.template as<object_t>();
             auto _it = obj.find(index);
-            if (_it == obj.end()) throw std::exception("Invalid key.");
+            if (_it == obj.end()) throw std::runtime_error("Invalid key.");
             else return _it->second;
         }
 
         template<class Self>
         auto& at(this Self& self, std::size_t index) {
             auto& arr = self.template as<array_t>();
-            if (arr.size() <= index) throw std::exception("Out of bounds");
+            if (arr.size() <= index) throw std::runtime_error("Out of bounds");
             return arr[index];
         }
         
@@ -932,11 +988,11 @@ namespace kaixo {
                                     + (hasExponent ? (negativeExponent ? "E-" : "E+") + exponent : "");
                 if (fractional || hasExponent) {
                     double val = 0;
-                    std::from_chars(fullStr.data(), fullStr.data() + fullStr.size(), val);
+                    from_chars(fullStr.data(), fullStr.data() + fullStr.size(), val);
                     return { negative ? -val : val };
                 } else {
                     std::uint64_t val = 0;
-                    std::from_chars(fullStr.data(), fullStr.data() + fullStr.size(), val);
+                    from_chars(fullStr.data(), fullStr.data() + fullStr.size(), val);
                     return negative ? number_t{ -static_cast<std::int64_t>(val) } : number_t{ val };
                 }
             }
