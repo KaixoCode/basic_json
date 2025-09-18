@@ -22,6 +22,31 @@ namespace kaixo {
 
     // ------------------------------------------------
 
+    // libc++ does not yet support fold_left_first, but I need it...
+    template <std::input_iterator I, std::sentinel_for<I> S, class F>
+    constexpr auto fold_left_first(I first, S last, F f) {
+        using U = std::iter_value_t<I>;
+        if (first == last) {
+            return std::optional<U>{};
+        }
+
+        U acc = *first;
+        ++first;
+        for (; first != last; ++first) {
+            acc = std::invoke(f, std::move(acc), *first);
+        }
+        return std::optional<U>{std::move(acc)};
+    }
+
+    template <std::ranges::input_range R, class F>
+    constexpr auto fold_left_first(R&& r, F f) {
+        return fold_left_first(std::ranges::begin(r),
+            std::ranges::end(r),
+            std::ref(f));
+    }
+
+    // ------------------------------------------------
+
 //#if defined(__clang__) && defined(_LIBCPP_VERSION)
 // libc++ does not yet support floating-point from_chars, but I need it...
 
@@ -104,12 +129,12 @@ namespace kaixo {
 
             // ------------------------------------------------
 
-            auto put(std::pair<std::string, basic_json> value, auto where) {
+            iterator put(std::pair<std::string, basic_json> value, const_iterator where) {
                 remove(value.first); // remove any old value associated with key
                 return ++this->insert(where, value);
             }
 
-            auto remove(std::string_view value) {
+            iterator remove(std::string_view value) {
                 auto res = std::find_if(this->begin(), this->end(), [&](auto& val) { return val.first == value; });
                 if (res == this->end()) return res;
                 return this->erase(res);
