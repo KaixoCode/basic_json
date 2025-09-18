@@ -1091,7 +1091,7 @@ namespace kaixo {
                         _columnsBeforeStart = original.size() - value.size();
                     }
 
-                    std::int64_t spaces = std::max(static_cast<std::int64_t>(index) - static_cast<std::int64_t>(_columnsBeforeStart), 0ll);
+                    std::int64_t spaces = std::max(static_cast<std::int64_t>(index) - static_cast<std::int64_t>(_columnsBeforeStart), static_cast<std::int64_t>(0ll));
                     if (firstLine && !startsOnNewLine) spaces -= 3; // remove 3 spaces to account for ''' on first line
                     
                     if (!firstLine) _result += '\n';
