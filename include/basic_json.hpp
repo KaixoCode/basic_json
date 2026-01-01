@@ -160,15 +160,16 @@ namespace kaixo {
 
         // ------------------------------------------------
 
-    private:
         using value = std::variant<number_t, string_t, boolean_t, array_t, object_t, null_t>;
 
         // ------------------------------------------------
 
+    private:
         value _value = null_t{};
 
         // ------------------------------------------------
 
+    public:
         template<class Ty> struct type_alias : std::type_identity<null_t> {};
         template<> struct type_alias<object_t>  : std::type_identity<object_t> {};
         template<> struct type_alias<array_t>   : std::type_identity<array_t> {};
@@ -199,7 +200,6 @@ namespace kaixo {
 
         // ------------------------------------------------
 
-    public:
         basic_json() = default;
         basic_json(null_t) : _value(null_t{}) {}
         basic_json(boolean_t value) : _value(value)  {}
