@@ -56,7 +56,7 @@ namespace kaixo {
 
     inline std::from_chars_result from_chars(const char* first, const char* last,
         float& value,
-        std::chars_format fmt = std::chars_format::general) {
+        std::chars_format /*fmt*/ = std::chars_format::general) {
         char* end = nullptr;
         errno = 0;
         value = std::strtof(first, &end);
@@ -71,7 +71,7 @@ namespace kaixo {
 
     inline std::from_chars_result from_chars(const char* first, const char* last,
         double& value,
-        std::chars_format fmt = std::chars_format::general) {
+        std::chars_format /*fmt*/ = std::chars_format::general) {
         char* end = nullptr;
         errno = 0;
         value = std::strtod(first, &end);
@@ -86,7 +86,7 @@ namespace kaixo {
 
     inline std::from_chars_result from_chars(const char* first, const char* last,
         long double& value,
-        std::chars_format fmt = std::chars_format::general) {
+        std::chars_format /*fmt*/ = std::chars_format::general) {
         char* end = nullptr;
         errno = 0;
         value = std::strtold(first, &end);
