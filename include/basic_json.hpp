@@ -178,6 +178,9 @@ namespace kaixo {
         template<class Ty> requires std::is_arithmetic_v<Ty>
         struct type_alias<Ty> : std::type_identity<number_t> {};
         
+        template<class Ty> requires std::is_enum_v<Ty>
+        struct type_alias<Ty> : std::type_identity<number_t> {};
+        
         template<class Ty> requires std::constructible_from<string_t, Ty>
         struct type_alias<Ty> : std::type_identity<string_t> {};
 
@@ -187,6 +190,7 @@ namespace kaixo {
         template<std::floating_point Ty>    struct number_type<Ty> : std::type_identity<double> {};
         template<std::unsigned_integral Ty> struct number_type<Ty> : std::type_identity<std::uint64_t> {};
         template<std::signed_integral Ty>   struct number_type<Ty> : std::type_identity<std::int64_t> {};
+        template<class Ty> requires std::is_enum_v<Ty> struct number_type<Ty> : std::type_identity<std::int64_t> {};
 
         // ------------------------------------------------
 
@@ -217,6 +221,11 @@ namespace kaixo {
         {}
 
         template<class Ty> requires std::is_arithmetic_v<Ty>
+        basic_json(Ty value)
+            : _value(number_t{ static_cast<typename number_type<Ty>::type>(value) })
+        {}
+
+        template<class Ty> requires std::is_enum_v<Ty>
         basic_json(Ty value)
             : _value(number_t{ static_cast<typename number_type<Ty>::type>(value) })
         {}
@@ -266,6 +275,9 @@ namespace kaixo {
         // ------------------------------------------------
 
         template<class Ty> requires (std::is_arithmetic_v<Ty> && !std::same_as<Ty, bool>)
+        Ty as() const { return std::visit([](auto val) { return static_cast<Ty>(val); }, std::get<number_t>(_value)); }
+
+        template<class Ty> requires std::is_enum_v<Ty>
         Ty as() const { return std::visit([](auto val) { return static_cast<Ty>(val); }, std::get<number_t>(_value)); }
 
         template<std::same_as<boolean_t> Ty>               boolean_t as() const { return std::get<boolean_t>(_value); }
