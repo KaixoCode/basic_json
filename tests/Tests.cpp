@@ -35,7 +35,6 @@ namespace kaixo::test {
     // ------------------------------------------------
 
     TEST(BasicJsonTests, Construction) {
-
         std::nullptr_t _nullv = nullptr;
         basic_json _null1{ nullptr };
         basic_json _null2{ _nullv };

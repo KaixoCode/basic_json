@@ -47,6 +47,39 @@ namespace kaixo {
 
     // ------------------------------------------------
 
+    template<std::floating_point Ty>
+    std::string number_to_json_safe_string(Ty value) {
+        std::ostringstream oss;
+        // Force C locale to guarantee '.' decimal separator
+        oss.imbue(std::locale::classic());
+
+        // max_digits10 ensures round-trip safety
+        oss.precision(std::numeric_limits<Ty>::max_digits10);
+        oss << std::defaultfloat << value;
+
+        std::string s = oss.str();
+
+        // Trim trailing zeros in decimal form
+        auto dot = s.find('.');
+        if (dot != std::string::npos)
+        {
+            while (!s.empty() && s.back() == '0')
+                s.pop_back();
+
+            if (!s.empty() && s.back() == '.')
+                s.pop_back();
+        }
+
+        return s;
+    }
+
+    template<std::integral Ty>
+    std::string number_to_json_safe_string(Ty value) {
+        return std::to_string(value);
+    }
+
+    // ------------------------------------------------
+
 //#if defined(__clang__) && defined(_LIBCPP_VERSION)
 // libc++ does not yet support floating-point from_chars, but I need it...
 
@@ -543,7 +576,7 @@ namespace kaixo {
         std::string to_string() const {
             using namespace std::ranges;
             switch (type()) {
-            case number: return std::visit([](auto& val) { return std::to_string(val); }, std::get<number_t>(_value));
+            case number: return std::visit([](auto& val) { return number_to_json_safe_string(val); }, std::get<number_t>(_value));
             case string: return '"' + escape(as<string_t>()) + '"';
             case boolean: return as<boolean_t>() ? "true" : "false";
             case null: return "null";
@@ -552,6 +585,23 @@ namespace kaixo {
                     [](auto&& a, auto&& b) { return a + ',' + b; }).value_or("") + ']';
             case object: return '{' + fold_left_first(views::transform(as<object_t>(),
                     [](auto& v) { return '"' + escape(v.first) + "\":" + v.second.to_string(); }), 
+                    [](auto&& a, auto&& b) { return a + ',' + b; }).value_or("") + '}';
+            default: return "";
+            }
+        }
+
+        std::string to_hjson_string() const {
+            using namespace std::ranges;
+            switch (type()) {
+            case number: return std::visit([](auto& val) { return number_to_json_safe_string(val); }, std::get<number_t>(_value));
+            case string: return '"' + escape(as<string_t>()) + '"';
+            case boolean: return as<boolean_t>() ? "true" : "false";
+            case null: return "null";
+            case array: return '[' + fold_left_first(views::transform(as<array_t>(),
+                    [](auto& v) { return v.to_hjson_string(); }),
+                    [](auto&& a, auto&& b) { return a + ',' + b; }).value_or("") + ']';
+            case object: return '{' + fold_left_first(views::transform(as<object_t>(),
+                    [](auto& v) { return escape(v.first) + ":" + v.second.to_hjson_string(); }), 
                     [](auto&& a, auto&& b) { return a + ',' + b; }).value_or("") + '}';
             default: return "";
             }
@@ -1266,7 +1316,7 @@ namespace kaixo {
                 ignore(whitespace_no_lf);
                 auto _comment = parse_comment();
                 if (_comment.fatal()) return _comment;
-                if (_comment.has_value() || consume_one_of("\n,][}{:")) {
+                if (_comment.has_value() || consume_one_of("\n,][}{:") || value.empty()) {
                     temp.revert();
                     return _result;
                 }
