@@ -151,7 +151,7 @@ namespace kaixo::test {
         basic_json arr = basic_json::array_t();
 
         arr.push_back(int{});
-        arr.push_back(unsigned int{});
+        arr.push_back(std::uint32_t{});
         arr.push_back(float{});
         arr.push_back(double{});
         arr.push_back(std::string{});
