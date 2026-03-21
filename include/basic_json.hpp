@@ -607,9 +607,10 @@ namespace kaixo {
             }
         }
 
-        std::string to_pretty_string(std::size_t indent = 0) {
+        std::string to_pretty_string(std::size_t indent = 0, std::size_t indentSize = 2) {
             using namespace std::ranges;
-            const std::string spaces(indent * 4, ' ');
+            const std::string spaces(indent * indentSize, ' ');
+            const std::string tab(indentSize, ' ');
             switch (type()) {
             case array: {
                 bool hasNestedObject = as<array_t>().end() != std::ranges::find_if(as<array_t>(), [](auto& val) {
@@ -618,7 +619,7 @@ namespace kaixo {
 
                 if (hasNestedObject) {
                     return "[\n" + fold_left_first(views::transform(as<array_t>(),
-                        [&](auto& v) { return spaces + "    " + v.to_pretty_string(indent + 1); }),
+                        [&](auto& v) { return spaces + tab + v.to_pretty_string(indent + 1, indentSize); }),
                         [](auto&& a, auto&& b) { return a + ",\n" + b; }).value_or("") + '\n' + spaces + ']';
                 } 
 
@@ -627,7 +628,7 @@ namespace kaixo {
             case object:
                 if (empty()) return "{}";
                 return "{\n" + fold_left_first(views::transform(as<object_t>(),
-                    [&](auto& v) { return spaces + "    " + '"' + escape(v.first) + "\": " + v.second.to_pretty_string(indent + 1); }),
+                    [&](auto& v) { return spaces + tab + '"' + escape(v.first) + "\": " + v.second.to_pretty_string(indent + 1, indentSize); }),
                     [](auto&& a, auto&& b) { return a + ",\n" + b; }).value_or("") + '\n' + spaces + '}';
             default: return to_string();
             }
