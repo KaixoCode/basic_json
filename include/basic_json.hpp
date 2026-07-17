@@ -578,7 +578,7 @@ namespace kaixo {
             switch (type()) {
             case number: stream << std::visit([](auto& val) { return number_to_json_safe_string(val); }, std::get<number_t>(_value)); break;
             case string: stream << '"'; escape(stream, as<string_t>()); stream << '"'; break;
-            case boolean: stream << as<boolean_t>() ? "true" : "false"; break;
+            case boolean: stream << (as<boolean_t>() ? "true" : "false"); break;
             case null: stream << "null"; break;
             case array: {
                 stream << '[';
