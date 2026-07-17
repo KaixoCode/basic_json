@@ -573,6 +573,39 @@ namespace kaixo {
 
         // ------------------------------------------------
 
+        void to_string(std::ostream& stream) const {
+            using namespace std::ranges;
+            switch (type()) {
+            case number: stream << std::visit([](auto& val) { return number_to_json_safe_string(val); }, std::get<number_t>(_value)); break;
+            case string: stream << '"'; escape(stream, as<string_t>()); stream << '"'; break;
+            case boolean: stream << as<boolean_t>() ? "true" : "false"; break;
+            case null: stream << "null"; break;
+            case array: {
+                stream << '[';
+                bool first = true;
+                for (auto& v : as<array_t>()) {
+                    if (!first) { stream << ','; }
+                    first = false;
+                    v.to_string(stream);
+                }
+                stream << ']';
+                break;
+            }
+            case object: {
+                stream << '{';
+                bool first = true;
+                for (auto& v : as<object_t>()) {
+                    if (!first) { stream << ','; }
+                    first = false;
+                    stream << '"' << escape(v.first) << '"' << ':';
+                    v.second.to_string(stream);
+                }
+                stream << '}';
+                break;
+            }
+            }
+        }
+
         std::string to_string() const {
             using namespace std::ranges;
             switch (type()) {
@@ -1346,6 +1379,20 @@ namespace kaixo {
         // ------------------------------------------------
         
     private:
+        static void escape(std::ostream& os, std::string_view str) {
+            for (char c : str) {
+                switch (c) {
+                case '"':  os << "\\\""; break;
+                case '\\': os << "\\\\"; break;
+                case '\b': os << "\\b";  break;
+                case '\f': os << "\\f";  break;
+                case '\n': os << "\\n";  break;
+                case '\r': os << "\\r";  break;
+                case '\t': os << "\\t";  break;
+                default: os.put(c); }
+            }
+        }
+
         constexpr static std::string escape(std::string_view str) {
             std::string _str{ str };
             string_replace(_str, "\\", "\\\\");
