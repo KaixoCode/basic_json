@@ -702,7 +702,14 @@ namespace kaixo {
                 error_message message;
 
                 std::string what() const {
-                    return std::format("line {}, character {}: {}", line, character, message.message);
+                    std::string result;
+                    result += "line ";
+                    result += std::to_string(line);
+                    result += ", character ";
+                    result += std::to_string(character);
+                    result += ": ";
+                    result += message.message;
+                    return result;
                 }
             };
 
