@@ -1172,14 +1172,22 @@ namespace kaixo {
                 if (auto _ignored = removeIgnored()) return _ignored;
                 string_t _result = "";
 
+                auto _startedHere = backup().fail("Started here");
+                if (!consume("'''")) return _.revert("Expected ''' to start multi-line string");
+
                 std::size_t _columnsBeforeStart = nof_characters_since_last('\n');
                 if (_columnsBeforeStart == std::string_view::npos) {
                     // If no previous newline, it means we're on the first line, so just count nof parsed characters
                     _columnsBeforeStart = original.size() - value.size();
                 }
-                
-                auto _startedHere = backup().fail("Started here");
-                if (!consume("'''")) return _.revert("Expected ''' to start multi-line string");
+
+                if (_columnsBeforeStart < 3) {
+                    // Should not happen, since we just parsed 3 single quotes...
+                    return _.revert("Unexpected error");
+                }
+
+                _columnsBeforeStart -= 3; // Account for the three '''
+
                 ignore(whitespace_no_lf);
                 bool startsOnNewLine = consume("\n");
 
@@ -1387,16 +1395,33 @@ namespace kaixo {
         
     private:
         static void escape(std::ostream& os, std::string_view str) {
-            for (char c : str) {
+            std::size_t start = 0;
+            for (std::size_t i = 0; i < str.size(); ++i) {
+                char c = str[i];
+
+                const char* escape = nullptr;
                 switch (c) {
-                case '"':  os << "\\\""; break;
-                case '\\': os << "\\\\"; break;
-                case '\b': os << "\\b";  break;
-                case '\f': os << "\\f";  break;
-                case '\n': os << "\\n";  break;
-                case '\r': os << "\\r";  break;
-                case '\t': os << "\\t";  break;
-                default: os.put(c); }
+                case '"':  escape = "\\\""; break;
+                case '\\': escape = "\\\\"; break;
+                case '\b': escape = "\\b";  break;
+                case '\f': escape = "\\f";  break;
+                case '\n': escape = "\\n";  break;
+                case '\r': escape = "\\r";  break;
+                case '\t': escape = "\\t";  break;
+                }
+
+                if (escape) {
+                    if (i > start) {
+                        os.write(str.data() + start, i - start);
+                    }
+
+                    os.write(escape, 2);
+                    start = i + 1;
+                }
+            }
+
+            if (start < str.size()) {
+                os.write(str.data() + start, str.size() - start);
             }
         }
 
